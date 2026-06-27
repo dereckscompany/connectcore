@@ -58,8 +58,10 @@ RestClient <- R6::R6Class(
     #'   endpoint, required when `time_source = "server"`. Default `NULL`.
     #' @param time_field (scalar<character>) JSON field holding epoch ms in the
     #'   server-time response. Default `"serverTime"`.
-    #' @param body_format (scalar<character in c("json", "query", "none")>) request
-    #'   body encoding. Default `"json"`.
+    #' @param body_format (scalar<character in c("json", "query", "none", "raw")>)
+    #'   default request-body encoding for every call; `"raw"` sends a
+    #'   pre-serialized body byte-verbatim (for venues that sign the exact body
+    #'   bytes). A single `.request()` may override it. Default `"json"`.
     #' @param user_agent (scalar<character>) the `User-Agent` header. Default
     #'   `"dereckscompany/connectcore"`.
     #' @param max_tries (scalar<count in [1, Inf[>) retry up to this many times on a
@@ -74,7 +76,7 @@ RestClient <- R6::R6Class(
       time_source = c("local", "server"),
       time_endpoint = NULL,
       time_field = "serverTime",
-      body_format = c("json", "query", "none"),
+      body_format = c("json", "query", "none", "raw"),
       user_agent = "dereckscompany/connectcore",
       max_tries = 1L,
       throttle_rate = NULL
@@ -160,6 +162,10 @@ RestClient <- R6::R6Class(
     # The single request method every endpoint method delegates to. Injects the
     # instance's URL, credentials, the overridable sign/parse seams, perform fn,
     # and retry/throttle config into the shared build_request() funnel.
+    #
+    # `base_url` overrides the instance URL for this one call (dual-host venues);
+    # `body_format` overrides the instance default (e.g. a single signed endpoint
+    # that sends a "raw" body the rest of the client does not).
     .request = function(
       endpoint,
       method = "GET",
@@ -167,10 +173,13 @@ RestClient <- R6::R6Class(
       body = NULL,
       auth = TRUE,
       .parser = identity,
-      timeout = 30
+      timeout = 30,
+      base_url = NULL,
+      body_format = NULL,
+      raw_content_type = "application/json"
     ) {
       return(build_request(
-        base_url = private$.base_url,
+        base_url = if (is.null(base_url)) private$.base_url else base_url,
         endpoint = endpoint,
         method = method,
         query = query,
@@ -178,7 +187,8 @@ RestClient <- R6::R6Class(
         keys = if (auth) private$.keys else NULL,
         sign = private$.sign,
         parse_envelope = private$.parse_envelope,
-        body_format = private$.body_format,
+        body_format = if (is.null(body_format)) private$.body_format else body_format,
+        raw_content_type = raw_content_type,
         .perform = private$.perform,
         .parser = .parser,
         is_async = private$.is_async,

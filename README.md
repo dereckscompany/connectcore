@@ -23,7 +23,11 @@ taught us, so the next one starts with the lessons already baked in.
 - **Keep the request funnel private; expose only typed endpoint
   methods.** Every call flows through one `private$.request()`, so
   signing, the error envelope, retry, and throttle live in one place
-  instead of scattered across endpoints.
+  instead of scattered across endpoints. The funnel covers the awkward
+  cases too: `body_format = "raw"` sends a pre-serialized body
+  **byte-verbatim** (for venues that sign the exact body bytes — no
+  `NULL`-pruning or pretty-printing), and `.request(base_url = ...)`
+  overrides the host for a single call (for dual-host venues).
 
 - **Only two things are genuinely venue-specific: how you authenticate,
   and how you read an error.** Make exactly those two overridable seams
@@ -99,7 +103,7 @@ reconnect storm can never trip a server’s connection rate limit:
 
 ``` r
 vapply(1:5, function(attempt) ws_backoff_delay(attempt, cap_seconds = 60), numeric(1))
-#> [1]  1  3  5  1 12
+#> [1]  1  2  5  3 23
 ```
 
 ## License
