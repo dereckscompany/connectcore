@@ -154,7 +154,7 @@ as_dt_list <- function(items) {
 #' @importFrom data.table set
 #' @export
 coerce_cols <- function(dt, cols, fn) {
-  assert_args_coerce_cols(cols, fn)
+  assert_args_coerce_cols(dt, cols, fn)
   for (col in intersect(cols, names(dt))) {
     data.table::set(dt, j = col, value = fn(dt[[col]]))
   }
