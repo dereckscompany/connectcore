@@ -82,8 +82,16 @@ RestClient <- R6::R6Class(
       time_source <- match.arg(time_source)
       body_format <- match.arg(body_format)
       assert_args_RestClient__initialize(
-        base_url, async, time_source, time_endpoint, time_field,
-        body_format, user_agent, max_tries, throttle_rate
+        keys,
+        base_url,
+        async,
+        time_source,
+        time_endpoint,
+        time_field,
+        body_format,
+        user_agent,
+        max_tries,
+        throttle_rate
       )
       private$.keys <- keys
       private$.base_url <- base_url

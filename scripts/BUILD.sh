@@ -144,7 +144,9 @@ run_cmd() {
 
 cmd_document() {
     print_header "Generating documentation..."
-    run_cmd Rscript -e "devtools::document()"
+    # keep.source.pkgs preserves R6 method srcrefs under pkgload so roxyassert's
+    # contract roclet can emit the per-method assert_args_/assert_return_ helpers.
+    run_cmd Rscript -e "options(keep.source = TRUE, keep.source.pkgs = TRUE); devtools::document()"
     print_success "Documentation generated"
 }
 

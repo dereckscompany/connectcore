@@ -66,7 +66,7 @@ StreamClient <- R6::R6Class(
     #' @param url (scalar<character>) the WebSocket URL (`ws://` or `wss://`).
     #' @param auto_reconnect (scalar<logical>) reconnect automatically (with
     #'   backoff) when the socket drops. Default `TRUE`.
-    #' @param max_reconnects (scalar<numeric in [1, Inf]>) give up after this many
+    #' @param max_reconnects (scalar<numeric>) give up after this many
     #'   consecutive failed reconnects (emit `"giveup"`, then `$run()` exits so a
     #'   supervisor can restart). `Inf` (default) retries forever — the right choice
     #'   for an unattended recorder.
@@ -92,8 +92,13 @@ StreamClient <- R6::R6Class(
       keepalive = 30
     ) {
       assert_args_StreamClient__initialize(
-        url, auto_reconnect, max_reconnects, backoff_cap,
-        proactive_reconnect, stale_timeout, keepalive
+        url,
+        auto_reconnect,
+        max_reconnects,
+        backoff_cap,
+        proactive_reconnect,
+        stale_timeout,
+        keepalive
       )
       private$.url <- url
       private$.auto_reconnect <- isTRUE(auto_reconnect)
@@ -333,13 +338,16 @@ StreamClient <- R6::R6Class(
       }
       delay <- ws_backoff_delay(private$.reconnect_attempts, private$.backoff_cap)
       private$.emit("reconnecting", list(attempt = private$.reconnect_attempts, delay = delay))
-      private$.reconnect_timer <- later::later(function() {
-        private$.reconnect_timer <- NULL
-        if (isTRUE(private$.running)) {
-          private$.open_socket()
-        }
-        return(invisible(NULL))
-      }, delay)
+      private$.reconnect_timer <- later::later(
+        function() {
+          private$.reconnect_timer <- NULL
+          if (isTRUE(private$.running)) {
+            private$.open_socket()
+          }
+          return(invisible(NULL))
+        },
+        delay
+      )
       return(invisible(NULL))
     },
 
@@ -351,13 +359,16 @@ StreamClient <- R6::R6Class(
       if (is.null(private$.proactive_reconnect)) {
         return(invisible(NULL))
       }
-      private$.proactive_timer <- later::later(function() {
-        if (isTRUE(private$.running) && !is.null(private$.ws)) {
-          private$.proactive_closing <- TRUE # tell onClose this is a planned refresh
-          try(private$.ws$close(), silent = TRUE)
-        }
-        return(invisible(NULL))
-      }, private$.proactive_reconnect)
+      private$.proactive_timer <- later::later(
+        function() {
+          if (isTRUE(private$.running) && !is.null(private$.ws)) {
+            private$.proactive_closing <- TRUE # tell onClose this is a planned refresh
+            try(private$.ws$close(), silent = TRUE)
+          }
+          return(invisible(NULL))
+        },
+        private$.proactive_reconnect
+      )
       return(invisible(NULL))
     },
 
@@ -379,13 +390,16 @@ StreamClient <- R6::R6Class(
     # driving the loop with `while (!later::loop_empty())` never sees an empty queue
     # and exits early. The same tick doubles as the silence watchdog.
     .schedule_keepalive = function() {
-      private$.keepalive_timer <- later::later(function() {
-        if (isTRUE(private$.running)) {
-          private$.check_stale()
-          private$.schedule_keepalive()
-        }
-        return(invisible(NULL))
-      }, private$.keepalive)
+      private$.keepalive_timer <- later::later(
+        function() {
+          if (isTRUE(private$.running)) {
+            private$.check_stale()
+            private$.schedule_keepalive()
+          }
+          return(invisible(NULL))
+        },
+        private$.keepalive
+      )
       return(invisible(NULL))
     },
 

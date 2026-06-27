@@ -13,20 +13,37 @@ Authors@R:
 Description: Shared transport base for R data-source connectors: a configurable REST client (httr2; sync/async; retry; pluggable signing and error handling; pagination) and an event-driven WebSocket client (auto-reconnect, keepalive, watchdog, extensible dispatch). Connector packages extend it instead of re-implementing transport.
 License: MIT
 Encoding: UTF-8
-Roxygen: list(markdown = TRUE)
+Roxygen: list(markdown = TRUE, roclets = c("namespace", "rd", "roxyassert::contract_roclet"))
 RoxygenNote: 7.3.3
+Depends:
+    R (>= 4.1.0)
+Imports:
+    R6,
+    rlang,
+    data.table,
+    httr2 (>= 1.0.0),
+    digest,
+    lubridate,
+    assert,
+    later,
+    websocket,
+    promises,
+    stats,
+    utils
 Suggests:
     box,
     covr,
-    DT,
-    ggplot2,
     knitr,
     lintr,
-    microbenchmark,
     pkgdown,
     rcmdcheck,
     rmarkdown,
-    testthat (>= 3.0.0)
+    roxyassert,
+    testthat (>= 3.0.0),
+    withr
+Remotes:
+    dereckscompany/assert,
+    dereckscompany/roxyassert
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 

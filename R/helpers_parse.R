@@ -34,7 +34,7 @@ coalesce_null <- function(x, default = NA) {
 #' `NA_real_` for `NULL`, empty, or unparseable input (no warning).
 #'
 #' @param x (any) a scalar value (number, string, or `NULL`).
-#' @return (scalar<numeric> | NA) the parsed double, or `NA_real_`.
+#' @return (scalar<numeric | NA>) the parsed double, or `NA_real_`.
 #' @export
 num_or_na <- function(x) {
   if (is.null(x) || length(x) == 0L) {
@@ -46,7 +46,7 @@ num_or_na <- function(x) {
 #' Coerce a scalar to character, or NA
 #'
 #' @param x (any) a scalar value, or `NULL`.
-#' @return (scalar<character> | NA) the value as a string, or `NA_character_`.
+#' @return (scalar<character | NA>) the value as a string, or `NA_character_`.
 #' @export
 chr_or_na <- function(x) {
   if (is.null(x) || length(x) == 0L) {
@@ -58,7 +58,7 @@ chr_or_na <- function(x) {
 #' Coerce a scalar to logical, or NA
 #'
 #' @param x (any) a scalar value, or `NULL`.
-#' @return (scalar<logical> | NA) the value as a logical, or `NA`.
+#' @return (scalar<logical | NA>) the value as a logical, or `NA`.
 #' @export
 lgl_or_na <- function(x) {
   if (is.null(x) || length(x) == 0L) {
@@ -73,7 +73,7 @@ lgl_or_na <- function(x) {
 #'
 #' @param x (list) a positional array.
 #' @param i (scalar<count in [1, Inf[>) the 1-based index.
-#' @return (scalar<numeric> | NA) the element as a double, or `NA_real_`.
+#' @return (scalar<numeric | NA>) the element as a double, or `NA_real_`.
 #' @export
 nth_num <- function(x, i) {
   if (is.null(x) || length(x) < i) {
@@ -86,7 +86,7 @@ nth_num <- function(x, i) {
 #'
 #' @param x (list) a positional array.
 #' @param i (scalar<count in [1, Inf[>) the 1-based index.
-#' @return (scalar<character> | NA) the element as a string, or `NA_character_`.
+#' @return (scalar<character | NA>) the element as a string, or `NA_character_`.
 #' @export
 nth_chr <- function(x, i) {
   if (is.null(x) || length(x) < i) {

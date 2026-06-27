@@ -17,7 +17,7 @@
 #' @return (any) `fn(x)`, or a promise resolving to it.
 #' @export
 then_or_now <- function(x, fn, is_async = FALSE) {
-  assert_args_then_or_now(fn, is_async)
+  assert_args_then_or_now(x, fn, is_async)
   if (is_async) {
     return(promises::then(x, fn))
   }
@@ -161,8 +161,23 @@ build_request <- function(
 ) {
   body_format <- match.arg(body_format)
   assert_args_build_request(
-    base_url, endpoint, method, query, sign, parse_envelope,
-    .parser, is_async, timeout, user_agent, max_tries, throttle_rate, ctx
+    base_url,
+    endpoint,
+    method,
+    query,
+    body,
+    keys,
+    sign,
+    parse_envelope,
+    body_format,
+    .perform,
+    .parser,
+    is_async,
+    timeout,
+    user_agent,
+    max_tries,
+    throttle_rate,
+    ctx
   )
 
   req <- httr2::request(base_url)

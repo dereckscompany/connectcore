@@ -13,7 +13,7 @@
 #' @export
 epoch_to_datetime <- function(value, unit = c("ms", "ns", "s")) {
   unit <- match.arg(unit)
-  assert_args_epoch_to_datetime(value)
+  assert_args_epoch_to_datetime(value, unit)
   seconds <- switch(unit, ms = value / 1000, ns = value / 1e9, s = value)
   return(lubridate::as_datetime(seconds, tz = "UTC"))
 }
@@ -27,7 +27,7 @@ epoch_to_datetime <- function(value, unit = c("ms", "ns", "s")) {
 #' @export
 datetime_to_epoch <- function(datetime, unit = c("ms", "ns", "s")) {
   unit <- match.arg(unit)
-  assert_args_datetime_to_epoch(datetime)
+  assert_args_datetime_to_epoch(datetime, unit)
   seconds <- as.numeric(datetime)
   return(switch(unit, ms = seconds * 1000, ns = seconds * 1e9, s = seconds))
 }
