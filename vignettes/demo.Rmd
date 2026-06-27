@@ -1,0 +1,40 @@
+---
+title: "Demonstrating connectcore"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Demonstrating connectcore}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 5,
+  dpi = 150,
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Introduction
+
+This vignette demonstrates the example function in `connectcore`:
+
+1. `add()` - A simple R function to add two numbers
+
+```{r setup}
+box::use(connectcore[ add ])
+```
+
+## Using the add() function
+
+The `add()` function is a simple R function that adds two numbers:
+```{r add-demo}
+add(2, 3)
+add(10.5, 20.3)
+add(-5, 5)
+```

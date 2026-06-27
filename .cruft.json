@@ -1,0 +1,41 @@
+{
+  "template": "https://github.com/dereckscompany/templates-cookiecutter.git",
+  "commit": "683e0f8dfb8ea7c8e67f2627e15618c3226884d9",
+  "checkout": "683e0f8dfb8ea7c8e67f2627e15618c3226884d9",
+  "context": {
+    "cookiecutter": {
+      "package_name": "connectcore",
+      "package_title": "Reusable Base for REST and WebSocket Data-Source Connectors",
+      "description": "Shared transport base for R data-source connectors: a configurable REST client (httr2; sync/async; retry; pluggable signing and error handling; pagination) and an event-driven WebSocket client (auto-reconnect, keepalive, watchdog, extensible dispatch). Connector packages extend it instead of re-implementing transport.",
+      "author_given": "Dereck",
+      "author_family": "Mezquita",
+      "author_email": "dereck@mezquita.io",
+      "author_orcid": "0000-0002-9307-6762",
+      "github_org": "dereckscompany",
+      "license": "MIT",
+      "use_rcpp": false,
+      "_copy_without_render": [
+        "renv/*",
+        "renv.lock"
+      ],
+      "_template": "https://github.com/dereckscompany/templates-cookiecutter.git",
+      "_commit": "683e0f8dfb8ea7c8e67f2627e15618c3226884d9"
+    }
+  },
+  "directory": "template-r-package",
+  "skip": [
+    "R/**",
+    "src/**",
+    "man/**",
+    "tests/testthat/**",
+    "vignettes/**",
+    "DESCRIPTION",
+    "NAMESPACE",
+    ".lintr",
+    "_pkgdown.yml",
+    "README.Rmd",
+    "inst/WORDLIST",
+    "renv/**",
+    "renv.lock"
+  ]
+}

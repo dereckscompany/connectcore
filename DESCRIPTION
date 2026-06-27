@@ -1,0 +1,32 @@
+Package: connectcore
+Title: Reusable Base for REST and WebSocket Data-Source Connectors
+Version: 0.0.0.9000
+URL: https://dereckscompany.github.io/connectcore,
+    https://github.com/dereckscompany/connectcore
+BugReports: https://github.com/dereckscompany/connectcore/issues
+Authors@R:
+    person(given = "Dereck",
+           family = "Mezquita",
+           role = c("aut", "cre"),
+           email = "dereck@mezquita.io",
+           comment = c(ORCID = "0000-0002-9307-6762"))
+Description: Shared transport base for R data-source connectors: a configurable REST client (httr2; sync/async; retry; pluggable signing and error handling; pagination) and an event-driven WebSocket client (auto-reconnect, keepalive, watchdog, extensible dispatch). Connector packages extend it instead of re-implementing transport.
+License: MIT
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Suggests:
+    box,
+    covr,
+    DT,
+    ggplot2,
+    knitr,
+    lintr,
+    microbenchmark,
+    pkgdown,
+    rcmdcheck,
+    rmarkdown,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+

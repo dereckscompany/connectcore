@@ -1,0 +1,18 @@
+linters: linters_with_defaults(
+    line_length_linter = line_length_linter(120),
+    indentation_linter = indentation_linter(2),
+    object_name_linter = object_name_linter(styles = c("snake_case", "SNAKE_CASE", "CamelCase")),
+    # Functions accepted as a valid exit under return_style = "explicit".
+    # Add project-specific aborters here (e.g. abort_assertion).
+    return_linter = return_linter(return_style = "explicit", return_functions = c("abort", "cli_abort")),
+    # 40 instead of lintr's default 30 — long descriptive names are fine.
+    # API-wrapper packages that mirror upstream field names often set this
+    # to NULL entirely, and commented_code_linter = NULL when endpoint docs
+    # live in comments.
+    object_length_linter = object_length_linter(length = 40L)
+  )
+exclusions: list(
+    "renv/activate.R",
+    "packages/*/renv/",
+    "scripts/"
+  )
