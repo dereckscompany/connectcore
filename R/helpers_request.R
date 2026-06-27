@@ -105,20 +105,33 @@ next_nonce <- function() {
 #' `req_retry` and `req_throttle` — retry/backoff and client-side rate limiting
 #' that no individual connector currently has.
 #'
+#' Signing runs **after** the body is set, so a venue that signs the exact body
+#' bytes (`body_format = "raw"`) can read them off `req$body$data` inside `sign`
+#' and add the signature header before the request is performed.
+#'
 #' @param base_url (scalar<character>) the API base URL.
 #' @param endpoint (scalar<character>) the path appended to `base_url`.
 #' @param method (scalar<character>) the HTTP method. Default `"GET"`.
-#' @param query (list) query parameters; `NULL` entries are dropped.
-#' @param body (list | NULL) request body; `NULL` entries are dropped. Default
+#' @param query (list) query parameters; `NULL` entries are dropped. A
+#'   vector-valued entry repeats its key (`.multi = "explode"`), e.g.
+#'   `ids = c("A", "B")` becomes `ids=A&ids=B`.
+#' @param body (list | scalar<character> | raw | NULL) request body. For
+#'   `body_format = "raw"` it is a pre-serialized scalar `character` (or `raw`)
+#'   sent verbatim; otherwise a `list` whose `NULL` entries are dropped. Default
 #'   `NULL`.
 #' @param keys (list | NULL) credentials passed to `sign`; `NULL` skips signing.
 #' @param sign (function | NULL) `function(req, keys, ctx)` returning a signed
 #'   request. `NULL` (default) means no signing.
 #' @param parse_envelope (function) `function(resp)` turning a response into data,
 #'   raising on error. Default [parse_json_response()].
-#' @param body_format (scalar<character in c("json", "query", "none")>) how `body`
-#'   is encoded: a JSON body, merged into the query string (some signed APIs), or
-#'   ignored. Default `"json"`.
+#' @param body_format (scalar<character in c("json", "query", "none", "raw")>) how
+#'   `body` is encoded: a pretty-printed JSON body (`NULL` fields pruned), merged
+#'   into the query string (some signed APIs), ignored, or — for `"raw"` — sent
+#'   byte-verbatim via [httr2::req_body_raw()] with no pruning, pretty-printing,
+#'   or re-encoding (the caller owns serialization; required by venues that sign
+#'   the exact body bytes). Default `"json"`.
+#' @param raw_content_type (scalar<character>) the `Content-Type` for a `"raw"`
+#'   body. Ignored unless `body_format = "raw"`. Default `"application/json"`.
 #' @param .perform (function) the httr2 perform function
 #'   ([httr2::req_perform] or [httr2::req_perform_promise]). Default
 #'   [httr2::req_perform].
@@ -138,7 +151,7 @@ next_nonce <- function() {
 #'   Default `list()`.
 #' @return (any) the post-processed data, or a promise resolving to it.
 #' @importFrom httr2 request req_method req_url_path_append req_url_query req_body_json
-#'   req_timeout req_user_agent req_error req_retry req_throttle req_perform
+#'   req_body_raw req_timeout req_user_agent req_error req_retry req_throttle req_perform
 #' @export
 build_request <- function(
   base_url,
@@ -149,7 +162,8 @@ build_request <- function(
   keys = NULL,
   sign = NULL,
   parse_envelope = parse_json_response,
-  body_format = c("json", "query", "none"),
+  body_format = c("json", "query", "none", "raw"),
+  raw_content_type = "application/json",
   .perform = httr2::req_perform,
   .parser = identity,
   is_async = FALSE,
@@ -170,6 +184,7 @@ build_request <- function(
     sign,
     parse_envelope,
     body_format,
+    raw_content_type,
     .perform,
     .parser,
     is_async,
@@ -187,17 +202,29 @@ build_request <- function(
   req <- httr2::req_user_agent(req, user_agent)
 
   query <- query[!vapply(query, is.null, logical(1))]
-  if (!is.null(body)) {
+  # A raw body is pre-serialized and sent byte-verbatim, so it must NOT be
+  # NULL-pruned (that operates on a list and would corrupt the exact bytes).
+  if (body_format != "raw" && !is.null(body)) {
     body <- body[!vapply(body, is.null, logical(1))]
   }
   if (body_format == "query" && length(body) > 0L) {
     query <- c(query, body) # signed APIs that carry the body in the query string
   }
   if (length(query) > 0L) {
-    req <- httr2::req_url_query(req, !!!query)
+    # `.multi = "explode"` repeats the key for a vector value (`ids = c("A", "B")`
+    # -> `ids=A&ids=B`), the standard REST multi-value convention. httr2 defaults
+    # to `.multi = "error"`, which aborts on any length > 1 value; scalar values
+    # are unaffected either way.
+    req <- httr2::req_url_query(req, !!!query, .multi = "explode")
   }
   if (body_format == "json" && length(body) > 0L) {
     req <- httr2::req_body_json(req, body, auto_unbox = TRUE)
+  }
+  if (body_format == "raw" && !is.null(body)) {
+    # Verbatim: no req_body_json, no NULL-pruning, no pretty-printing, no
+    # re-encoding. The caller owns serialization; a body-signing venue's `sign`
+    # can then read the exact bytes off `req$body$data` below.
+    req <- httr2::req_body_raw(req, body, type = raw_content_type)
   }
 
   # The envelope parser owns error detection, so disable httr2's auto-error.

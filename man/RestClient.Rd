@@ -77,7 +77,7 @@ Initialise a RestClient
   time_source = c("local", "server"),
   time_endpoint = NULL,
   time_field = "serverTime",
-  body_format = c("json", "query", "none"),
+  body_format = c("json", "query", "none", "raw"),
   user_agent = "dereckscompany/connectcore",
   max_tries = 1L,
   throttle_rate = NULL
@@ -104,8 +104,10 @@ endpoint, required when \code{time_source = "server"}. Default \code{NULL}.}
 \item{\code{time_field}}{(scalar<character>) JSON field holding epoch ms in the
 server-time response. Default \code{"serverTime"}.}
 
-\item{\code{body_format}}{(scalar<character in c("json", "query", "none")>) request
-body encoding. Default \code{"json"}.}
+\item{\code{body_format}}{(scalar<character in c("json", "query", "none", "raw")>)
+default request-body encoding for every call; \code{"raw"} sends a
+pre-serialized body byte-verbatim (for venues that sign the exact body
+bytes). A single \code{.request()} may override it. Default \code{"json"}.}
 
 \item{\code{user_agent}}{(scalar<character>) the \code{User-Agent} header. Default
 \code{"dereckscompany/connectcore"}.}

@@ -1,6 +1,6 @@
 Package: connectcore
 Title: Reusable Base for REST and WebSocket Data-Source Connectors
-Version: 0.0.1
+Version: 0.1.0
 URL: https://dereckscompany.github.io/connectcore,
     https://github.com/dereckscompany/connectcore
 BugReports: https://github.com/dereckscompany/connectcore/issues

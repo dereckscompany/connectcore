@@ -13,7 +13,8 @@ build_request(
   keys = NULL,
   sign = NULL,
   parse_envelope = parse_json_response,
-  body_format = c("json", "query", "none"),
+  body_format = c("json", "query", "none", "raw"),
+  raw_content_type = "application/json",
   .perform = httr2::req_perform,
   .parser = identity,
   is_async = FALSE,
@@ -31,9 +32,13 @@ build_request(
 
 \item{method}{(scalar<character>) the HTTP method. Default \code{"GET"}.}
 
-\item{query}{(list) query parameters; \code{NULL} entries are dropped.}
+\item{query}{(list) query parameters; \code{NULL} entries are dropped. A
+vector-valued entry repeats its key (\code{.multi = "explode"}), e.g.
+\code{ids = c("A", "B")} becomes \code{ids=A&ids=B}.}
 
-\item{body}{(list | NULL) request body; \code{NULL} entries are dropped. Default
+\item{body}{(list | scalar<character> | raw | NULL) request body. For
+\code{body_format = "raw"} it is a pre-serialized scalar \code{character} (or \code{raw})
+sent verbatim; otherwise a \code{list} whose \code{NULL} entries are dropped. Default
 \code{NULL}.}
 
 \item{keys}{(list | NULL) credentials passed to \code{sign}; \code{NULL} skips signing.}
@@ -44,9 +49,15 @@ request. \code{NULL} (default) means no signing.}
 \item{parse_envelope}{(function) \verb{function(resp)} turning a response into data,
 raising on error. Default \code{\link[=parse_json_response]{parse_json_response()}}.}
 
-\item{body_format}{(scalar<character in c("json", "query", "none")>) how \code{body}
-is encoded: a JSON body, merged into the query string (some signed APIs), or
-ignored. Default \code{"json"}.}
+\item{body_format}{(scalar<character in c("json", "query", "none", "raw")>) how
+\code{body} is encoded: a pretty-printed JSON body (\code{NULL} fields pruned), merged
+into the query string (some signed APIs), ignored, or — for \code{"raw"} — sent
+byte-verbatim via \code{\link[httr2:req_body]{httr2::req_body_raw()}} with no pruning, pretty-printing,
+or re-encoding (the caller owns serialization; required by venues that sign
+the exact body bytes). Default \code{"json"}.}
+
+\item{raw_content_type}{(scalar<character>) the \code{Content-Type} for a \code{"raw"}
+body. Ignored unless \code{body_format = "raw"}. Default \code{"application/json"}.}
 
 \item{.perform}{(function) the httr2 perform function
 (\link[httr2:req_perform]{httr2::req_perform} or \link[httr2:req_perform_promise]{httr2::req_perform_promise}). Default
@@ -87,4 +98,8 @@ data and detect errors), and \code{body_format} (how a request body is encoded).
 Unlike the per-venue copies this generalises, it also adds optional
 \code{req_retry} and \code{req_throttle} — retry/backoff and client-side rate limiting
 that no individual connector currently has.
+
+Signing runs \strong{after} the body is set, so a venue that signs the exact body
+bytes (\code{body_format = "raw"}) can read them off \code{req$body$data} inside \code{sign}
+and add the signature header before the request is performed.
 }

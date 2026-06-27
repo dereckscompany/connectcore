@@ -14,7 +14,7 @@ assert_args_RestClient__initialize <- function(keys, base_url, async, time_sourc
   }
   assert_scalar_character(time_field)
   assert_scalar_character(body_format)
-  assert_value_in_set(body_format, c("json", "query", "none"))
+  assert_value_in_set(body_format, c("json", "query", "none", "raw"))
   assert_scalar_character(user_agent)
   assert_scalar_count(max_tries)
   assert_between(max_tries, lower = 1)
@@ -279,13 +279,24 @@ assert_return_next_nonce <- function(value) {
   return(value)
 }
 
-assert_args_build_request <- function(base_url, endpoint, method, query, body, keys, sign, parse_envelope, body_format, .perform, .parser, is_async, timeout, user_agent, max_tries, throttle_rate, ctx) {
+assert_args_build_request <- function(base_url, endpoint, method, query, body, keys, sign, parse_envelope, body_format, raw_content_type, .perform, .parser, is_async, timeout, user_agent, max_tries, throttle_rate, ctx) {
   assert_scalar_character(base_url)
   assert_scalar_character(endpoint)
   assert_scalar_character(method)
   assert_list(query)
   if (!is.null(body)) {
-    assert_list(body)
+    assert_any_of(
+      body,
+      function(.x) {
+        assert_list(.x)
+      },
+      function(.x) {
+        assert_scalar_character(.x)
+      },
+      function(.x) {
+        assert_raw(.x)
+      }
+    )
   }
   if (!is.null(keys)) {
     assert_list(keys)
@@ -295,7 +306,8 @@ assert_args_build_request <- function(base_url, endpoint, method, query, body, k
   }
   assert_function(parse_envelope)
   assert_scalar_character(body_format)
-  assert_value_in_set(body_format, c("json", "query", "none"))
+  assert_value_in_set(body_format, c("json", "query", "none", "raw"))
+  assert_scalar_character(raw_content_type)
   assert_function(.perform)
   assert_function(.parser)
   assert_scalar_logical(is_async)
