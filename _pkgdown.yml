@@ -18,6 +18,18 @@ reference:
     desc: Pure R functions
     contents:
       - add
+  - title: Test harness
+    desc: >
+      A shared HTTP-mock toolkit over httr2's native mock hook, for testing and
+      documenting a connector against canned fixtures (sync and async).
+    contents:
+      - mock_response
+      - mock_router
+      - body_routes
+      - req_body_json
+      - with_mock_api
+      - local_mock_api
+      - load_fixtures
 
 articles:
   - title: Getting Started
