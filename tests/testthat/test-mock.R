@@ -95,6 +95,14 @@ test_that("mock_router accepts a non-function fixture used as-is", {
   expect_identical(httr2::resp_body_json(resp)$value, 1L)
 })
 
+test_that("mock_router accepts the legacy `pattern` matcher key (connector tables)", {
+  # the existing connector route tables key the URL field `pattern`, not `match`
+  routes <- list(list(pattern = "/products", fixture = function() list(ok = TRUE), method = NULL))
+  router <- mock_router(routes)
+  resp <- router(httr2::request("https://api.test/products"))
+  expect_true(httr2::resp_body_json(resp)$ok)
+})
+
 # ---- mock_router: STATEFUL fixtures (kucoin pagination) ----
 
 test_that("a stateful thunk paginates: page 1 then the empty page (kucoin)", {
