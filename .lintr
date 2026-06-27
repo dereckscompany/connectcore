@@ -6,13 +6,14 @@ linters: linters_with_defaults(
     # Add project-specific aborters here (e.g. abort_assertion).
     return_linter = return_linter(return_style = "explicit", return_functions = c("abort", "cli_abort")),
     # 40 instead of lintr's default 30 — long descriptive names are fine.
-    # API-wrapper packages that mirror upstream field names often set this
-    # to NULL entirely, and commented_code_linter = NULL when endpoint docs
-    # live in comments.
-    object_length_linter = object_length_linter(length = 40L)
+    object_length_linter = object_length_linter(length = 40L),
+    # Off: every source file opens with a `# File:` header and the roxygen
+    # blocks carry inline `code` spans, both of which this linter false-flags.
+    commented_code_linter = NULL
   )
 exclusions: list(
     "renv/activate.R",
     "packages/*/renv/",
-    "scripts/"
+    "scripts/",
+    "R/contracts-generated.R"
   )
