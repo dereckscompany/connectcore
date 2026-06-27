@@ -44,5 +44,6 @@ Suggests:
 Remotes:
     dereckscompany/assert,
     dereckscompany/roxyassert
+VignetteBuilder: knitr
 Config/testthat/edition: 3
 
