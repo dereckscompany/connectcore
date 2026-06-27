@@ -9,8 +9,8 @@ StreamClient: Event-Driven WebSocket Base for Connectors
 StreamClient: Event-Driven WebSocket Base for Connectors
 }
 \details{
-A Node.js-style event-driven base for long-lived WebSocket streams (exchange
-market data, AIS vessel tracking, any push feed). You register handlers with
+A Node.js-style event-driven base for long-lived WebSocket streams (any
+long-lived push feed). You register handlers with
 \verb{$on(event, handler)} — exactly like \code{ws.on("message", ...)} in JavaScript —
 and the library calls them as messages arrive on R's event loop (the \code{later}
 package, which, like Node, is built on libuv). Concrete connectors subclass

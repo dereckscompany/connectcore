@@ -1,16 +1,15 @@
 # File: R/auth.R
 # Request-signing helpers. A connector authenticates by overriding RestClient's
-# private `.sign(req, keys, ctx)` and delegating to one of these. v1 ships the
-# HMAC-query scheme (Binance-style); HMAC-header (KuCoin), JWT (Coinbase), and
-# EVM-wallet (Hyperliquid) helpers plug in the same way and are added as their
-# connectors are migrated onto connectcore.
+# private `.sign(req, keys, ctx)` and delegating to one of these. This ships the
+# HMAC-query scheme; other schemes (HMAC-header, JWT, wallet-signature) plug in
+# the same way and can be added alongside it.
 
 #' Sign a request with HMAC-query authentication
 #'
 #' Authenticates by appending a `timestamp` and an HMAC-SHA256 `signature` of the
-#' (URL-encoded) query string, plus an API-key header — the scheme used by Binance
-#' and compatible exchanges. The parameter/header names are configurable so one
-#' implementation serves any exchange using this scheme. Call it from a
+#' (URL-encoded) query string, plus an API-key header — a common scheme across
+#' signed REST APIs. The parameter/header names are configurable so one
+#' implementation serves any service using this scheme. Call it from a
 #' connector's `.sign()` override, e.g.
 #' `.sign = function(req, keys, ctx) hmac_query_sign(req, keys, ctx$get_timestamp_ms)`.
 #'
@@ -19,7 +18,7 @@
 #' @param get_timestamp_ms (function | NULL) a zero-argument function returning
 #'   epoch milliseconds; `NULL` (default) uses the local UTC clock.
 #' @param api_key_header (scalar<character>) header carrying the public API key.
-#'   Default `"X-MBX-APIKEY"`.
+#'   Default `"X-API-KEY"`.
 #' @param signature_param (scalar<character>) query parameter for the signature.
 #'   Default `"signature"`.
 #' @param timestamp_param (scalar<character>) query parameter for the timestamp.
@@ -34,7 +33,7 @@ hmac_query_sign <- function(
   req,
   keys,
   get_timestamp_ms = NULL,
-  api_key_header = "X-MBX-APIKEY",
+  api_key_header = "X-API-KEY",
   signature_param = "signature",
   timestamp_param = "timestamp"
 ) {

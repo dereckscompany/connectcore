@@ -23,7 +23,7 @@ test_that("hmac_query_sign sets the api-key header", {
     list(api_key = "KEY", api_secret = "SECRET"),
     get_timestamp_ms = function() 1700000000000
   )
-  expect_identical(signed$headers$`X-MBX-APIKEY`, "KEY")
+  expect_identical(signed$headers$`X-API-KEY`, "KEY")
 })
 
 test_that("hmac_query_sign honours configurable param/header names", {

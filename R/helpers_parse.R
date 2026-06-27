@@ -1,8 +1,8 @@
 # File: R/helpers_parse.R
 # Generic JSON -> data.table coercion toolkit. These turn parsed JSON (lists)
 # into flat data.tables with snake_case columns and no list columns. They carry
-# no venue semantics; per-endpoint parsers build on them. Shared verbatim across
-# connectors (the convention was already duplicated in binance/alpaca/kucoin).
+# no source semantics; per-endpoint parsers build on them. Shared across
+# connectors (the same convention was otherwise duplicated in every one).
 
 #' Convert camelCase names to snake_case
 #'

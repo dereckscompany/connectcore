@@ -44,7 +44,7 @@ url_getter <- function(var, default) {
 #' than aborts) if any field is empty, since public endpoints work without keys.
 #'
 #' @param spec (list) a named list mapping each credential field to its env var
-#'   name, e.g. `list(api_key = "BINANCE_API_KEY", api_secret = "BINANCE_API_SECRET")`.
+#'   name, e.g. `list(api_key = "MYAPP_API_KEY", api_secret = "MYAPP_API_SECRET")`.
 #' @param warn (scalar<logical>) warn when a field resolves empty. Default `TRUE`.
 #' @return (list) a named list of the resolved credential values.
 #' @export

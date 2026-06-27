@@ -8,7 +8,7 @@ hmac_query_sign(
   req,
   keys,
   get_timestamp_ms = NULL,
-  api_key_header = "X-MBX-APIKEY",
+  api_key_header = "X-API-KEY",
   signature_param = "signature",
   timestamp_param = "timestamp"
 )
@@ -22,7 +22,7 @@ hmac_query_sign(
 epoch milliseconds; \code{NULL} (default) uses the local UTC clock.}
 
 \item{api_key_header}{(scalar<character>) header carrying the public API key.
-Default \code{"X-MBX-APIKEY"}.}
+Default \code{"X-API-KEY"}.}
 
 \item{signature_param}{(scalar<character>) query parameter for the signature.
 Default \code{"signature"}.}
@@ -35,9 +35,9 @@ Default \code{"timestamp"}.}
 }
 \description{
 Authenticates by appending a \code{timestamp} and an HMAC-SHA256 \code{signature} of the
-(URL-encoded) query string, plus an API-key header — the scheme used by Binance
-and compatible exchanges. The parameter/header names are configurable so one
-implementation serves any exchange using this scheme. Call it from a
+(URL-encoded) query string, plus an API-key header — a common scheme across
+signed REST APIs. The parameter/header names are configurable so one
+implementation serves any service using this scheme. Call it from a
 connector's \code{.sign()} override, e.g.
 \code{.sign = function(req, keys, ctx) hmac_query_sign(req, keys, ctx$get_timestamp_ms)}.
 }

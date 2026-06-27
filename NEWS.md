@@ -1,10 +1,10 @@
 # connectcore 0.0.1
 
 Initial release. A shared transport base for R data-source connectors. It owns
-**transport only** — no trading vocabulary, no dependency on `tradebot-core` — and
-is meant to be installed and **extended** by connector packages rather than used on
-its own. (The exported helpers and `StreamClient` do work standalone; `RestClient`
-is extend-only, its request funnel being private.)
+**transport only** — no domain vocabulary, no domain dependencies — and is meant
+to be installed and **extended** by connector packages rather than used on its
+own. (The exported helpers and `StreamClient` do work standalone; `RestClient` is
+extend-only, its request funnel being private.)
 
 * **`RestClient`** — abstract REST base: synchronous or asynchronous (via
   `promises`), optional retry and client-side throttle, and one private

@@ -8,7 +8,7 @@ load_keys(spec, warn = TRUE)
 }
 \arguments{
 \item{spec}{(list) a named list mapping each credential field to its env var
-name, e.g. \code{list(api_key = "BINANCE_API_KEY", api_secret = "BINANCE_API_SECRET")}.}
+name, e.g. \code{list(api_key = "MYAPP_API_KEY", api_secret = "MYAPP_API_SECRET")}.}
 
 \item{warn}{(scalar<logical>) warn when a field resolves empty. Default \code{TRUE}.}
 }

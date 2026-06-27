@@ -5,35 +5,45 @@
 
 <!-- badges: end -->
 
-Shared transport base for R data-source connectors. Every connector we
-write — exchange REST/WebSocket APIs, AIS vessel feeds, any push or pull
-data source — was re-implementing the same plumbing: an httr2 request
-funnel, request signing, JSON-to-`data.table` coercion,
-epoch-to-`POSIXct` conversion, and a reconnecting WebSocket loop.
-`connectcore` is that plumbing, extracted once and shared.
+A shared transport base for R data-source connectors. It owns
+**transport only** — no domain vocabulary, no domain dependencies. You
+build a connector by extending two base classes and supplying what is
+genuinely source-specific; everything else is inherited.
 
-It owns **transport only** — it carries no trading vocabulary and does
-not depend on `tradebot-core`. A connector package extends the two base
-classes and supplies the venue specifics (the base URL, how to sign a
-request, how to read an error envelope, how to turn a frame into
-events); everything else is inherited.
+It is mostly a place to put what building a stack of these connectors
+taught us, so the next one starts with the lessons already baked in.
 
-Two bases and a toolkit:
+## What we learned
 
-- **`RestClient`** — an abstract REST client (sync **or** async via
-  promises, optional retry and client-side throttle), with one
-  `private$.request()` funnel every endpoint method delegates to. Venue
-  specifics plug in by overriding two private seams: `.sign()` and
-  `.parse_envelope()`.
-- **`StreamClient`** — an event-driven WebSocket base
-  (`$on("message", ...)`, Node-style), with auto-reconnect (full-jitter
-  backoff), keepalive, a silence watchdog, and proactive reconnect — all
-  handled for you. Subclasses override `.dispatch()` (frame → events)
-  and `.resubscribe()` (replay subscriptions).
-- **Helpers** — request signing, JSON→`data.table` coercion,
-  epoch↔`POSIXct` conversion, environment-backed credential loading, and
-  WebSocket backoff. All typed and runtime-checked with
-  [roxyassert](https://github.com/dereckscompany/roxyassert).
+- **One codebase for sync and async — not two.** Route every result
+  through a single branch point (`then_or_now()`), write methods
+  mode-agnostically, and choose sync or async once at construction.
+  `RestClient` is mode-transparent.
+
+- **Keep the request funnel private; expose only typed endpoint
+  methods.** Every call flows through one `private$.request()`, so
+  signing, the error envelope, retry, and throttle live in one place
+  instead of scattered across endpoints.
+
+- **Only two things are genuinely venue-specific: how you authenticate,
+  and how you read an error.** Make exactly those two overridable seams
+  — `.sign()` and `.parse_envelope()` — with sane defaults (no-auth,
+  error on non-2xx). A simple public API then needs no overrides at all.
+
+- **WebSockets fail silently.** `onClose` does not always fire, so a
+  dead socket looks alive. You need a silence watchdog (force-reconnect
+  after N seconds quiet), full-jitter backoff (or a reconnect storm
+  trips the server’s rate limit), and proactive reconnect (to beat a
+  forced cutoff). `StreamClient` does all of this; subclass it only to
+  classify frames into your own events.
+
+- **Coerce JSON once, centrally.** Flat `data.table`s, snake_case names,
+  no list columns — from a shared toolkit, not hand-rolled per endpoint.
+
+- **Type every argument and return.**
+  [roxyassert](https://github.com/dereckscompany/roxyassert) contracts
+  fail loudly at the boundary, instead of letting a malformed value
+  surface three calls later.
 
 ## Installation
 
@@ -44,101 +54,38 @@ into the project library:
 renv::install("dereckscompany/connectcore")
 ```
 
-## Transport helpers
+## Extending the REST base
 
-The coercion toolkit turns parsed JSON (lists) into flat `data.table`s
-with snake_case columns and no list columns:
+Subclass `RestClient`, override the two seams (or neither, for a public
+API), and add endpoint methods over the private funnel:
 
 ``` r
 library(connectcore)
 
-# A JSON array of objects -> one data.table, names snake_cased, missing filled.
-records <- list(
-    list(openTime = 1700000000000, closePrice = "100.5", symbol = "BTCUSDT"),
-    list(openTime = 1700000060000, closePrice = "101.0")
-)
-as_dt_list(records)
-#>    open_time close_price  symbol
-#>        <num>      <char>  <char>
-#> 1:   1.7e+12       100.5 BTCUSDT
-#> 2:   1.7e+12       101.0    <NA>
-```
-
-Epoch values (APIs deliver milliseconds, nanoseconds, or seconds)
-convert to `POSIXct` in UTC and back:
-
-``` r
-epoch_to_datetime(1700000000000, "ms")
-#> [1] "2023-11-14 22:13:20 UTC"
-datetime_to_epoch(epoch_to_datetime(1700000000000, "ms"), "s")
-#> [1] 1.7e+09
-```
-
-## Request signing
-
-`hmac_query_sign()` implements the Binance-style scheme (HMAC-SHA256 of
-the URL-encoded query string, plus an API-key header). The parameter and
-header names are configurable, so one implementation serves any exchange
-that uses it. Passing a fixed clock makes the signature reproducible:
-
-``` r
-req <- httr2::req_url_query(httr2::request("https://api.example.com/order"), symbol = "BTCUSDT")
-signed <- hmac_query_sign(
-    req,
-    keys = list(api_key = "PUBLIC", api_secret = "SECRET"),
-    get_timestamp_ms = function() 1700000000000
-)
-httr2::url_parse(signed$url)$query
-#> $symbol
-#> [1] "BTCUSDT"
-#> 
-#> $timestamp
-#> [1] "1700000000000"
-#> 
-#> $signature
-#> [1] "5ffbfbb5c20629df9fcc0b03599ad10d6b2095e322300ff327b7e9c1b3048b3e"
-```
-
-## Extending the REST base
-
-A connector subclasses `RestClient` and overrides the two private seams.
-The default `.sign()` applies no auth (a public client) and the default
-`.parse_envelope()` is “JSON body, error on non-2xx” — so a simple
-public API needs no overrides at all.
-
-``` r
-BinanceBase <- R6::R6Class(
-    "BinanceBase",
-    inherit = connectcore::RestClient,
-    public = list(
-        initialize = function(keys = NULL, base_url = "https://api.binance.com") {
-            super$initialize(keys = keys, base_url = base_url, body_format = "query")
-        }
-    ),
-    private = list(
-        # Authenticate by delegating to the shared HMAC-query helper.
-        .sign = function(req, keys, ctx) {
-            connectcore::hmac_query_sign(req, keys, ctx$get_timestamp_ms)
-        }
-    )
+MyClient <- R6::R6Class(
+  "MyClient",
+  inherit = connectcore::RestClient,
+  public = list(
+    initialize = function(keys = NULL, base_url = "https://api.example.com") {
+      super$initialize(keys = keys, base_url = base_url, body_format = "query")
+    }
+  ),
+  private = list(
+    # Authenticate by delegating to the shared HMAC-query helper.
+    .sign = function(req, keys, ctx) {
+      connectcore::hmac_query_sign(req, keys, ctx$get_timestamp_ms)
+    }
+  )
 )
 
-client <- BinanceBase$new()
+client <- MyClient$new()
 client$is_async
 #> [1] FALSE
 ```
 
-Set `async = TRUE` and every endpoint method returns a
-`promises::promise` instead of a value — the class is mode-transparent,
-the only branch is inside `then_or_now()`.
-
 ## Extending the WebSocket base
 
-`StreamClient` is event-driven, like `ws.on(...)` in Node. The base
-emits a standard core of events (`open`, `message`, `close`, `error`,
-`reconnecting`, `reconnected`, `giveup`, `stale` — see `WS_EVENTS`); a
-subclass’ `.dispatch()` may emit its own. A minimal recorder needs no
-subclass — register a handler and run the loop:
+A recorder needs no subclass — register a handler and run the loop:
 
 ``` r
 ws <- StreamClient$new("wss://stream.example.com", stale_timeout = 120)
@@ -147,22 +94,12 @@ ws$on("message", function(msg) cat(msg, "\n"))
 ws$run() # keeps the process alive and pumps the event loop
 ```
 
-The reconnect backoff is full-jitter exponential, capped, so a reconnect
-storm can never trip a server’s connection rate limit:
+The reconnect backoff is full-jitter exponential and capped, so a
+reconnect storm can never trip a server’s connection rate limit:
 
 ``` r
 vapply(1:5, function(attempt) ws_backoff_delay(attempt, cap_seconds = 60), numeric(1))
-#> [1]  1  2  6 11 23
-```
-
-## Build commands
-
-``` bash
-./scripts/BUILD.sh all       # document -> clean -> build -> check -> install
-./scripts/BUILD.sh document  # regenerate documentation (and roxyassert contracts)
-./scripts/BUILD.sh readme    # render README.Rmd -> README.md
-./scripts/FORMAT.sh          # format R code with air
-./scripts/LINT.sh            # lintr over the package
+#> [1]  1  3  5  1 12
 ```
 
 ## License

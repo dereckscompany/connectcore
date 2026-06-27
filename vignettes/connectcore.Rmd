@@ -12,16 +12,15 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 library(connectcore)
 ```
 
-`connectcore` is a **base to extend**, not an end-user package. It carries the
-transport plumbing every data-source connector repeats — an httr2 request funnel,
+`connectcore` is a base to extend, not an end-user package. It carries the
+transport plumbing a data-source connector repeats — an httr2 request funnel,
 request signing, JSON→`data.table` coercion, and a reconnecting WebSocket loop —
-so a connector package supplies only what is genuinely venue-specific and
-inherits the rest. It owns transport only: no trading vocabulary, no dependency
-on `tradebot-core`.
+so a connector supplies only what is genuinely source-specific and inherits the
+rest. Transport only: no domain vocabulary, no domain dependencies.
 
-Two things *are* usable directly — the exported helpers, and `StreamClient`
-(it is concrete; a recorder needs no subclass). The REST side is extend-only:
-`RestClient`'s request funnel is private, so you reach it by subclassing.
+Two things are usable directly — the exported helpers, and `StreamClient` (it is
+concrete; a recorder needs no subclass). The REST side is extend-only:
+`RestClient`'s request funnel is private, reached by subclassing.
 
 ## The helpers, standalone
 
@@ -29,8 +28,8 @@ The coercion and time helpers are plain functions — call them anywhere:
 
 ```{r}
 records <- list(
-    list(openTime = 1700000000000, closePrice = "100.5", symbol = "BTCUSDT"),
-    list(openTime = 1700000060000, closePrice = "101.0")
+  list(openTime = 1700000000000, closePrice = "100.5", symbol = "ABC"),
+  list(openTime = 1700000060000, closePrice = "101.0")
 )
 as_dt_list(records)
 
@@ -46,28 +45,28 @@ methods delegate to the private `.request()` funnel, which injects the base URL,
 credentials, both seams, and the retry/throttle config.
 
 ```{r}
-Exchange <- R6::R6Class(
-    "Exchange",
-    inherit = connectcore::RestClient,
-    public = list(
-        initialize = function(keys = NULL, base_url = "https://api.example.com") {
-            super$initialize(keys = keys, base_url = base_url, body_format = "query")
-        },
-        # A public endpoint method — the funnel is private, so this is how
-        # callers reach it.
-        ticker = function(symbol) {
-            private$.request("/api/v3/ticker", query = list(symbol = symbol))
-        }
-    ),
-    private = list(
-        # Authenticate by delegating to the shared HMAC-query helper.
-        .sign = function(req, keys, ctx) {
-            connectcore::hmac_query_sign(req, keys, ctx$get_timestamp_ms)
-        }
-    )
+MyClient <- R6::R6Class(
+  "MyClient",
+  inherit = connectcore::RestClient,
+  public = list(
+    initialize = function(keys = NULL, base_url = "https://api.example.com") {
+      super$initialize(keys = keys, base_url = base_url, body_format = "query")
+    },
+    # A public endpoint method — the funnel is private, so this is how callers
+    # reach it.
+    ticker = function(symbol) {
+      private$.request("/v1/ticker", query = list(symbol = symbol))
+    }
+  ),
+  private = list(
+    # Authenticate by delegating to the shared HMAC-query helper.
+    .sign = function(req, keys, ctx) {
+      connectcore::hmac_query_sign(req, keys, ctx$get_timestamp_ms)
+    }
+  )
 )
 
-client <- Exchange$new()
+client <- MyClient$new()
 client$is_async
 ```
 
@@ -92,21 +91,21 @@ replay subscriptions after every (re)connect (`.resubscribe()`); the
 reconnect / keepalive / watchdog machinery is inherited.
 
 ```{r, eval = FALSE}
-Feed <- R6::R6Class(
-    "Feed",
-    inherit = connectcore::StreamClient,
-    private = list(
-        # Turn one raw frame into typed events instead of the default "message".
-        .dispatch = function(raw) {
-            msg <- jsonlite::fromJSON(raw, simplifyVector = FALSE)
-            private$.emit(msg$type %||% "message", msg)
-        },
-        # Re-send subscriptions after each (re)connect.
-        .resubscribe = function() {
-            self$send('{"subscribe": "trades"}')
-        }
-    )
+MyStream <- R6::R6Class(
+  "MyStream",
+  inherit = connectcore::StreamClient,
+  private = list(
+    # Turn one raw frame into typed events instead of the default "message".
+    .dispatch = function(raw) {
+      msg <- jsonlite::fromJSON(raw, simplifyVector = FALSE)
+      private$.emit(msg$type %||% "message", msg)
+    },
+    # Re-send subscriptions after each (re)connect.
+    .resubscribe = function() {
+      self$send('{"subscribe": "trades"}')
+    }
+  )
 )
 ```
 
-That is the whole contract: supply the venue specifics, inherit the transport.
+That is the whole contract: supply the source specifics, inherit the transport.

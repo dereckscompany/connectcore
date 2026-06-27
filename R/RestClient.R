@@ -26,11 +26,11 @@
 #' \dontrun{
 #' # A connector subclasses RestClient and overrides .sign to authenticate,
 #' # delegating to a shared signing helper:
-#' BinanceBase <- R6::R6Class("BinanceBase", inherit = connectcore::RestClient,
-#'   public = list(initialize = function(keys = get_api_keys(), base_url = get_base_url(),
+#' MyClient <- R6::R6Class("MyClient", inherit = connectcore::RestClient,
+#'   public = list(initialize = function(keys = NULL, base_url = "https://api.example.com",
 #'                                        async = FALSE, time_source = c("local", "server")) {
 #'     super$initialize(keys = keys, base_url = base_url, async = async,
-#'       time_source = match.arg(time_source), time_endpoint = "/api/v3/time",
+#'       time_source = match.arg(time_source), time_endpoint = "/v1/time",
 #'       body_format = "query")
 #'   }),
 #'   private = list(
