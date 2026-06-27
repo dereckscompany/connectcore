@@ -103,8 +103,57 @@ reconnect storm can never trip a server’s connection rate limit:
 
 ``` r
 vapply(1:5, function(attempt) ws_backoff_delay(attempt, cap_seconds = 60), numeric(1))
-#> [1]  1  2  5  3 23
+#> [1]  1  1  5  7 23
 ```
+
+## Testing your connector
+
+httr2 has a native global mock hook — `options(httr2_mock = ...)` — that
+intercepts **both** the synchronous `req_perform()` and the asynchronous
+`req_perform_promise()`. connectcore ships a small harness over it, so a
+connector renders its docs and runs its suite against canned fixtures
+with no network, no credentials, and no funds (and the async path is
+covered by the very same router).
+
+Define a route table and wrap your code in `with_mock_api()`:
+
+``` r
+library(connectcore)
+
+routes <- list(
+  list(match = "/time", fixture = function() list(epoch = 1700000000), method = NULL),
+  list(match = "/products", fixture = function() list(list(id = "BTC-USD")), method = "GET")
+)
+
+with_mock_api(routes, {
+  resp <- httr2::req_perform(httr2::request("https://api.example.com/time"))
+  httr2::resp_body_json(resp)$epoch
+})
+#> [1] 1700000000
+```
+
+A route’s `match` is **either** a string (matched as a substring of the
+request URL — the style coinbase, alpaca, binance, and kucoin use)
+**or** a `function(req)` predicate that can read the URL, method, and
+body. Body-routed APIs (e.g. Hyperliquid, whose whole REST surface sits
+behind `/info` and `/exchange`, keyed by a body field) are built with
+`body_routes()`:
+
+``` r
+mock_router(c(
+  body_routes("/exchange", c("action", "type"), exchange_routes),
+  body_routes("/info", "type", info_routes)
+))
+```
+
+A fixture is invoked **per request**, so a counter in its closure
+expresses a stateful route (paginate: page 1, then an empty page); and a
+fixture may return a fully-built `httr2_response` (a 204 no-content, an
+error), which is passed through unchanged. `mock_response()` builds a
+response from a list (JSON-encoded), a verbatim JSON string, or an
+existing response; `load_fixtures(dir)` reads a directory of real
+captured `*.json` into a named route table; and `local_mock_api()` is
+the `withr::local_*` companion for use inside a `test_that()` block.
 
 ## License
 

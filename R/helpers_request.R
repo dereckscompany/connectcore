@@ -150,7 +150,7 @@ next_nonce <- function() {
 #' @param ctx (list) extra context forwarded to `sign` (e.g. a timestamp source).
 #'   Default `list()`.
 #' @return (any) the post-processed data, or a promise resolving to it.
-#' @importFrom httr2 request req_method req_url_path_append req_url_query req_body_json
+#' @importFrom httr2 request req_method req_url_path_append req_url_query
 #'   req_body_raw req_timeout req_user_agent req_error req_retry req_throttle req_perform
 #' @export
 build_request <- function(

@@ -352,6 +352,76 @@ assert_return_ws_file_sink <- function(value) {
   return(value)
 }
 
+assert_args_mock_response <- function(body, status, headers) {
+  assert_scalar_count(status)
+  assert_between(status, lower = 100, upper = 599)
+  assert_list(headers)
+  return(invisible(NULL))
+}
+
+assert_return_mock_response <- function(value) {
+  assert_class(value, "httr2_response")
+  return(value)
+}
+
+assert_args_req_body_json <- function(req) {
+  assert_class(req, "httr2_request")
+  return(invisible(NULL))
+}
+
+assert_return_req_body_json <- function(value) {
+  if (!is.null(value)) {
+    assert_list(value)
+  }
+  return(value)
+}
+
+assert_args_body_routes <- function(url_filter, field_path, cases) {
+  assert_scalar_character(url_filter)
+  assert_character(field_path)
+  assert_no_missing_values(field_path)
+  assert_list(cases)
+  return(invisible(NULL))
+}
+
+assert_return_body_routes <- function(value) {
+  assert_list(value)
+  return(value)
+}
+
+assert_args_mock_router <- function(routes, response_builder) {
+  assert_list(routes)
+  assert_function(response_builder)
+  return(invisible(NULL))
+}
+
+assert_return_mock_router <- function(value) {
+  assert_function(value)
+  return(value)
+}
+
+assert_args_local_mock_api <- function(routes, .env) {
+  assert_list(routes)
+  assert_class(.env, "environment")
+  return(invisible(NULL))
+}
+
+assert_return_local_mock_api <- function(value) {
+  assert_function(value)
+  return(value)
+}
+
+assert_args_load_fixtures <- function(dir, parse) {
+  assert_scalar_character(dir)
+  assert_scalar_logical(parse)
+  return(invisible(NULL))
+}
+
+assert_return_load_fixtures <- function(value) {
+  assert_list(value)
+  return(value)
+}
+
 assert_args_env_or <- function(var, default) {
   assert_scalar_character(var)
   assert_scalar_character(default)
