@@ -4,11 +4,12 @@
 #' RestClient: Abstract REST Client Base for Connectors
 #'
 #' Shared infrastructure for REST connectors: credential storage, sync/async
-#' execution, a configurable signing scheme and error-envelope parser, and a
-#' single `private$.request()` funnel every endpoint method delegates to. A
-#' connector subclasses it and supplies the venue specifics — base URL, a `sign`
-#' strategy (e.g. [hmac_query_signer()]), an envelope `parse` function, and the
-#' body encoding — then adds typed endpoint methods.
+#' execution, and a single `private$.request()` funnel every endpoint method
+#' delegates to. Venue specifics plug in by **overriding two private seams** —
+#' `.sign()` (how to authenticate a request) and `.parse_envelope()` (how to turn
+#' a response into data and detect errors) — exactly as [StreamClient] subclasses
+#' override `.dispatch()`. The defaults are no-auth and "JSON body, error on
+#' non-2xx", so the base works as-is for a simple public API.
 #'
 #' ### Sync vs Async
 #' `async = FALSE` (default) returns results directly; `async = TRUE` returns
@@ -18,18 +19,23 @@
 #' ### Timestamp source
 #' `time_source = "local"` (default) signs against the local UTC clock;
 #' `"server"` fetches the venue's server time (`time_endpoint`) before each
-#' signed request to avoid clock drift, at the cost of one extra round trip.
+#' signed request to avoid clock drift, at the cost of one extra round trip. The
+#' source is exposed to `.sign()` via `ctx$get_timestamp_ms`.
 #'
 #' @examples
 #' \dontrun{
-#' # A connector subclasses RestClient and injects its venue strategy:
+#' # A connector subclasses RestClient and overrides .sign to authenticate,
+#' # delegating to a shared signing helper:
 #' BinanceBase <- R6::R6Class("BinanceBase", inherit = connectcore::RestClient,
 #'   public = list(initialize = function(keys = get_api_keys(), base_url = get_base_url(),
 #'                                        async = FALSE, time_source = c("local", "server")) {
 #'     super$initialize(keys = keys, base_url = base_url, async = async,
 #'       time_source = match.arg(time_source), time_endpoint = "/api/v3/time",
-#'       sign = connectcore::hmac_query_signer(), body_format = "query")
-#'   }))
+#'       body_format = "query")
+#'   }),
+#'   private = list(
+#'     .sign = function(req, keys, ctx) connectcore::hmac_query_sign(req, keys, ctx$get_timestamp_ms)
+#'   ))
 #' }
 #'
 #' @importFrom R6 R6Class
@@ -41,7 +47,7 @@ RestClient <- R6::R6Class(
     #' @description
     #' Initialise a RestClient
     #'
-    #' @param keys (list | NULL) API credentials forwarded to `sign`. `NULL` for a
+    #' @param keys (list | NULL) API credentials passed to `.sign()`. `NULL` for a
     #'   public-only client.
     #' @param base_url (scalar<character>) the API base URL.
     #' @param async (scalar<logical>) if `TRUE`, methods return promises. Default
@@ -52,10 +58,6 @@ RestClient <- R6::R6Class(
     #'   endpoint, required when `time_source = "server"`. Default `NULL`.
     #' @param time_field (scalar<character>) JSON field holding epoch ms in the
     #'   server-time response. Default `"serverTime"`.
-    #' @param sign (function | NULL) the request signer `function(req, keys, ctx)`.
-    #'   `NULL` (default) means no signing.
-    #' @param parse_envelope (function) `function(resp)` turning a response into
-    #'   data and raising on error. Default [parse_json_response()].
     #' @param body_format (scalar<character in c("json", "query", "none")>) request
     #'   body encoding. Default `"json"`.
     #' @param user_agent (scalar<character>) the `User-Agent` header. Default
@@ -72,8 +74,6 @@ RestClient <- R6::R6Class(
       time_source = c("local", "server"),
       time_endpoint = NULL,
       time_field = "serverTime",
-      sign = NULL,
-      parse_envelope = parse_json_response,
       body_format = c("json", "query", "none"),
       user_agent = "dereckscompany/connectcore",
       max_tries = 1L,
@@ -82,15 +82,13 @@ RestClient <- R6::R6Class(
       time_source <- match.arg(time_source)
       body_format <- match.arg(body_format)
       assert_args_RestClient__initialize(
-        keys, base_url, async, time_source, time_endpoint, time_field,
-        sign, parse_envelope, body_format, user_agent, max_tries, throttle_rate
+        base_url, async, time_source, time_endpoint, time_field,
+        body_format, user_agent, max_tries, throttle_rate
       )
       private$.keys <- keys
       private$.base_url <- base_url
       private$.is_async <- isTRUE(async)
       private$.time_source <- time_source
-      private$.sign <- sign
-      private$.parse_envelope <- parse_envelope
       private$.body_format <- body_format
       private$.user_agent <- user_agent
       private$.max_tries <- as.integer(max_tries)
@@ -129,16 +127,31 @@ RestClient <- R6::R6Class(
     .is_async = FALSE,
     .time_source = "local",
     .get_timestamp_ms = NULL,
-    .sign = NULL,
-    .parse_envelope = NULL,
     .body_format = "json",
     .user_agent = "dereckscompany/connectcore",
     .max_tries = 1L,
     .throttle_rate = NULL,
 
+    # ---- Overridable seams (subclasses customise these) ----
+
+    # Authenticate a request. The default applies no auth (public client); a venue
+    # overrides it and delegates to a signing helper (e.g. hmac_query_sign()). It
+    # receives the instance's credentials and a context list whose
+    # `get_timestamp_ms` is the configured (local or server) clock source.
+    .sign = function(req, keys, ctx) {
+      return(req)
+    },
+
+    # Turn a response into data and raise on error. The default is JSON + non-2xx;
+    # a venue with a business-level error envelope (e.g. a `code`/`msg` field that
+    # signals failure on a 200) overrides it.
+    .parse_envelope = function(resp) {
+      return(parse_json_response(resp))
+    },
+
     # The single request method every endpoint method delegates to. Injects the
-    # instance's URL, credentials, signer, envelope parser, perform fn, and
-    # retry/throttle config into the shared build_request() funnel.
+    # instance's URL, credentials, the overridable sign/parse seams, perform fn,
+    # and retry/throttle config into the shared build_request() funnel.
     .request = function(
       endpoint,
       method = "GET",
