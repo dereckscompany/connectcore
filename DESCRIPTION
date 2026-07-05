@@ -1,6 +1,6 @@
 Package: connectcore
 Title: Reusable Base for REST and WebSocket Data-Source Connectors
-Version: 0.2.1
+Version: 0.3.0
 URL: https://dereckscompany.github.io/connectcore,
     https://github.com/dereckscompany/connectcore
 BugReports: https://github.com/dereckscompany/connectcore/issues
@@ -15,6 +15,7 @@ License: MIT
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE, roclets = c("namespace", "rd", "roxyassert::contract_roclet"))
 RoxygenNote: 7.3.3
+Config/roxygen2/version: 7.3.3
 Depends:
     R (>= 4.1.0)
 Imports:
@@ -25,10 +26,11 @@ Imports:
     jsonlite,
     digest,
     lubridate,
-    assert,
+    assert (>= 0.0.9),
     later,
     websocket,
     promises,
+    withr,
     stats,
     utils
 Suggests:
@@ -39,12 +41,11 @@ Suggests:
     pkgdown,
     rcmdcheck,
     rmarkdown,
-    roxyassert,
-    testthat (>= 3.0.0),
-    withr
+    roxyassert (>= 0.9.1),
+    testthat (>= 3.0.0)
 Remotes:
     dereckscompany/assert,
-    dereckscompany/roxyassert@v0.9.1
+    dereckscompany/roxyassert
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 
