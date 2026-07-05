@@ -50,18 +50,18 @@ MyClient <- R6::R6Class(
   inherit = connectcore::RestClient,
   public = list(
     initialize = function(keys = NULL, base_url = "https://api.example.com") {
-      super$initialize(keys = keys, base_url = base_url, body_format = "query")
+      return(super$initialize(keys = keys, base_url = base_url, body_format = "query"))
     },
     # A public endpoint method — the funnel is private, so this is how callers
     # reach it.
     ticker = function(symbol) {
-      private$.request("/v1/ticker", query = list(symbol = symbol))
+      return(private$.request("/v1/ticker", query = list(symbol = symbol)))
     }
   ),
   private = list(
     # Authenticate by delegating to the shared HMAC-query helper.
     .sign = function(req, keys, ctx) {
-      connectcore::hmac_query_sign(req, keys, ctx$get_timestamp_ms)
+      return(connectcore::hmac_query_sign(req, keys, ctx$get_timestamp_ms))
     }
   )
 )
@@ -98,11 +98,11 @@ MyStream <- R6::R6Class(
     # Turn one raw frame into typed events instead of the default "message".
     .dispatch = function(raw) {
       msg <- jsonlite::fromJSON(raw, simplifyVector = FALSE)
-      private$.emit(msg$type %||% "message", msg)
+      return(private$.emit(msg$type %||% "message", msg))
     },
     # Re-send subscriptions after each (re)connect.
     .resubscribe = function() {
-      self$send('{"subscribe": "trades"}')
+      return(self$send('{"subscribe": "trades"}'))
     }
   )
 )

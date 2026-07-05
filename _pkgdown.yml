@@ -14,10 +14,58 @@ navbar:
       aria-label: GitHub repository
 
 reference:
-  - title: R Functions
-    desc: Pure R functions
+  - title: Transport clients
+    desc: >
+      The abstract REST base and the concrete event-driven WebSocket base that
+      connector packages extend.
     contents:
-      - add
+      - RestClient
+      - StreamClient
+      - build_request
+  - title: Authentication and signing
+    desc: Request signing, credential loading, and nonces.
+    contents:
+      - hmac_query_sign
+      - load_keys
+      - next_nonce
+  - title: Time conversion
+    desc: Epoch and POSIXct conversions and server-time helpers.
+    contents:
+      - epoch_to_datetime
+      - datetime_to_epoch
+      - ms_to_datetime
+      - datetime_to_ms
+      - fetch_server_time_ms
+      - then_or_now
+  - title: Response parsing
+    desc: JSON to data.table coercion and name conversion.
+    contents:
+      - as_dt_row
+      - as_dt_list
+      - to_snake_case
+      - coerce_cols
+      - collapse_string_array_fields
+      - parse_json_response
+  - title: Accessors and coercion
+    desc: Null-safe scalar accessors and type coercion.
+    contents:
+      - nth_chr
+      - nth_num
+      - chr_or_na
+      - num_or_na
+      - lgl_or_na
+      - coalesce_null
+  - title: Environment and configuration
+    desc: Environment-backed configuration lookups.
+    contents:
+      - env_or
+      - url_getter
+  - title: WebSocket helpers
+    desc: Backoff, event constants, and a file sink for stream recorders.
+    contents:
+      - ws_backoff_delay
+      - ws_file_sink
+      - WS_EVENTS
   - title: Test harness
     desc: >
       A shared HTTP-mock toolkit over httr2's native mock hook, for testing and
@@ -35,4 +83,4 @@ articles:
   - title: Getting Started
     navbar: ~
     contents:
-      - demo
+      - connectcore

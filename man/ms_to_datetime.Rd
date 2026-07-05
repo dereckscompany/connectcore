@@ -7,12 +7,19 @@
 ms_to_datetime(ms)
 }
 \arguments{
-\item{ms}{(numeric) epoch milliseconds (may contain \code{NA}).}
+\item{ms}{(any | NULL) epoch millisecond timestamp(s); the raw JSON value,
+whose R type is unconstrained (numeric, character, or an all-\code{NA} logical).}
 }
 \value{
-(class<POSIXct>) the times in UTC.
+(class<POSIXct>) a POSIXct vector in UTC (length matching \code{ms}), \code{NA}
+where \code{ms} is \code{NULL}/\code{NA}.
 }
 \description{
-Convenience for the common case; shape-preserving so an all-\code{NA} input still
-yields a POSIXct vector (suitable for \code{\link[=coerce_cols]{coerce_cols()}} on a column).
+The fleet-wide convenience for the common measurement-time case: connectors
+feed it a raw JSON timestamp field whose R type is not known ahead of time
+(numeric, character, or an all-\code{NA} logical when every record was empty). It
+is length-preserving and NA-in -> NA-out, so an all-\code{NA} input still yields a
+POSIXct vector of the same length (suitable for \code{\link[=coerce_cols]{coerce_cols()}} on a column
+documented as POSIXct — a scalar \code{NA} would be recycled into the column's
+existing storage type rather than replacing it with a POSIXct one).
 }

@@ -482,8 +482,6 @@ assert_return_datetime_to_epoch <- function(value) {
 }
 
 assert_args_ms_to_datetime <- function(ms) {
-  assert_double(ms)
-  assert_no_missing_values(ms)
   return(invisible(NULL))
 }
 
