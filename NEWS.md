@@ -1,3 +1,7 @@
+# connectcore 0.2.1
+
+Fix a `StreamClient` open-check that silently broke every WebSocket stream. `.is_open()` compared `readyState()` to `1L` with `identical()`, but the `websocket` package returns an ATTRIBUTED integer (a named `OPEN = 1L`), so `identical()` was `FALSE` even when the socket was open. Every `send()` then aborted and `.resubscribe()` threw inside `onOpen` before the `"open"` event fired, so no subscription was ever sent and the stream received nothing (0-byte captures). Now compares by value (`== 1L`). Regression test added.
+
 # connectcore 0.2.0
 
 A shared **HTTP-mock test harness**, exported for connector packages to use in

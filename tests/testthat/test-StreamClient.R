@@ -20,6 +20,18 @@ test_that("send() aborts when the socket is not open", {
   expect_error(ws$send('{"subscribe":"all"}'), "not open")
 })
 
+test_that("is_open() reads an OPEN socket even when readyState carries attributes", {
+  # The `websocket` package returns readyState() as an ATTRIBUTED integer (a named
+  # `OPEN = 1L`), so an `identical(., 1L)` open-check silently reports "not open" and
+  # wedges every send() / .resubscribe(). is_open() must compare by value. Inject a
+  # fake socket to exercise the check without a live connection.
+  ws <- StreamClient$new("wss://example.test/stream")
+  ws$.__enclos_env__$private$.ws <- list(readyState = function() c(OPEN = 1L))
+  expect_true(ws$is_open())
+  ws$.__enclos_env__$private$.ws <- list(readyState = function() c(CONNECTING = 0L))
+  expect_false(ws$is_open())
+})
+
 test_that("initialize enforces its contract", {
   expect_error(StreamClient$new(url = 123))
   expect_error(StreamClient$new("wss://x", auto_reconnect = "yes"))

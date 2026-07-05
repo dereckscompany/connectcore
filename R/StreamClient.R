@@ -298,7 +298,13 @@ StreamClient <- R6::R6Class(
     },
 
     .is_open = function() {
-      return(!is.null(private$.ws) && identical(private$.ws$readyState(), 1L))
+      # Compare by VALUE (`== 1L`), not `identical(., 1L)`. The websocket package
+      # returns readyState() as an ATTRIBUTED integer (a named `OPEN = 1L`), so
+      # `identical(., 1L)` is FALSE even when the socket is open — which silently
+      # makes every send() abort and `.resubscribe()` throw inside onOpen, so no
+      # subscription is ever sent and the stream receives nothing. `== 1L` matches
+      # by value regardless of the name/attributes.
+      return(!is.null(private$.ws) && isTRUE(private$.ws$readyState() == 1L))
     },
 
     .is_connecting_or_open = function() {
