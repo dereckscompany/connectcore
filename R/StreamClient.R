@@ -153,7 +153,10 @@ StreamClient <- R6::R6Class(
     send = function(message) {
       assert_args_StreamClient__send(message)
       if (!private$.is_open()) {
-        rlang::abort("Cannot send: socket is not open.")
+        # Typed condition (see [connectcore_conditions]): message stays byte-identical
+        # to the legacy "Cannot send: socket is not open."; a caller can
+        # tryCatch(connectcore_stream_error = ...). The socket URL is stored scrubbed.
+        abort_stream_error("Cannot send: socket is not open.", url = private$.url)
       }
       private$.ws$send(message)
       return(invisible(assert_return_StreamClient__send(self)))

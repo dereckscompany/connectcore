@@ -28,6 +28,16 @@ reference:
       - hmac_query_sign
       - load_keys
       - next_nonce
+  - title: Typed conditions
+    desc: >
+      Classed transport errors every connector inherits and subclasses, plus the
+      credential-scrubbing helper. See the taxonomy and the connector recipe.
+    contents:
+      - connectcore_conditions
+      - abort_api_error
+      - abort_response_error
+      - abort_stream_error
+      - scrub_url
   - title: Time conversion
     desc: Epoch and POSIXct conversions and server-time helpers.
     contents:

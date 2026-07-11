@@ -118,6 +118,23 @@ assert_return_hmac_query_sign <- function(value) {
   return(value)
 }
 
+assert_args_scrub_url <- function(url, sensitive_params) {
+  if (!is.null(url)) {
+    assert_scalar_character(url)
+  }
+  assert_character(sensitive_params)
+  assert_no_missing_values(sensitive_params)
+  assert_minimum_length(sensitive_params, 1L)
+  return(invisible(NULL))
+}
+
+assert_return_scrub_url <- function(value) {
+  if (!is.null(value)) {
+    assert_scalar_character(value)
+  }
+  return(value)
+}
+
 assert_args_to_snake_case <- function(names) {
   assert_character(names)
   assert_no_missing_values(names)
