@@ -22,6 +22,38 @@ ws_backoff_delay <- function(attempt, cap_seconds = 60) {
   return(assert_return_ws_backoff_delay(round(stats::runif(1) * min(cap_seconds, expo) + 1)))
 }
 
+#' Construct a typed WebSocket lifecycle event
+#'
+#' Builds the structured event object [StreamClient] delivers to an `$on_event()`
+#' handler: a `list` with an `event_type` (one of [WS_EVENT_TYPES]), a lubridate
+#' UTC `timestamp`, and the per-type fields merged in. It is the WebSocket analogue
+#' of the typed REST conditions (see `?connectcore_conditions`): a caller branches
+#' on `event$event_type` and reads fields as data instead of re-parsing a raw
+#' callback payload. A WebSocket connector can also build one directly — e.g. to
+#' emit a parsed error frame as a structured `"error"` event.
+#'
+#' Per-type fields the base populates: `open` carries `reconnect` (was this a
+#' reconnect); `message` carries `data` (the frame text); `close` carries `code`
+#' and `reason`; `error` carries `error` (the socket error event); `reconnect`
+#' carries `attempt` and `delay` (the backoff seconds).
+#'
+#' @param event_type (scalar<character in c("open", "message", "error", "close", "reconnect")>)
+#'   the event type; also the `event_type` field.
+#' @param fields (list) per-type fields merged into the event after `event_type`
+#'   and `timestamp`. Default `list()`.
+#' @return (list) the lifecycle event: `event_type`, `timestamp` (POSIXct/UTC),
+#'   then the `fields`.
+#' @importFrom lubridate now
+#' @export
+ws_event <- function(event_type, fields = list()) {
+  assert_args_ws_event(event_type, fields)
+  event <- c(
+    list(event_type = event_type, timestamp = lubridate::now("UTC")),
+    fields
+  )
+  return(assert_return_ws_event(event))
+}
+
 #' A message handler that appends each frame to a connection
 #'
 #' Convenience for the recorder hot path: returns a `"message"` handler that

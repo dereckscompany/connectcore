@@ -44,6 +44,22 @@ the message as a \strong{character string} (binary frames are decoded with
 }
 }
 
+\subsection{Typed lifecycle events (\verb{$on_event()})}{
+
+Alongside the string-keyed \verb{$on()} callbacks above, \verb{$on_event(handler)}
+delivers a single \strong{typed} object (see \link{ws_event}) for every lifecycle
+transition — \code{open}, \code{message}, \code{close}, \code{error}, \code{reconnect} (see
+\link{WS_EVENT_TYPES}) — each with a lubridate UTC \code{timestamp} and per-type fields
+(\code{close} carries \code{code} + \code{reason}; \code{reconnect} carries \code{attempt} + \code{delay};
+\code{open} carries \code{reconnect}; \code{message} carries \code{data}; \code{error} carries \code{error}).
+This is the WebSocket analogue of the typed REST conditions
+(\code{?connectcore_conditions}): branch on \code{event$event_type} and read fields as
+data instead of re-parsing a raw callback payload. It is \strong{additive} — the
+\verb{$on()} callbacks are unchanged — and the typed object is materialised only
+when an \verb{$on_event()} handler is registered, so the parse-free hot path stays
+free by default.
+}
+
 \subsection{Connection management (handled for you)}{
 \itemize{
 \item \strong{Auto-reconnect} with full-jitter exponential backoff, so a reconnect
@@ -75,6 +91,7 @@ ws$run() # keeps the process alive and pumps the event loop
 \itemize{
 \item \href{#method-StreamClient-new}{\code{StreamClient$new()}}
 \item \href{#method-StreamClient-on}{\code{StreamClient$on()}}
+\item \href{#method-StreamClient-on_event}{\code{StreamClient$on_event()}}
 \item \href{#method-StreamClient-connect}{\code{StreamClient$connect()}}
 \item \href{#method-StreamClient-send}{\code{StreamClient$send()}}
 \item \href{#method-StreamClient-run}{\code{StreamClient$run()}}
@@ -153,6 +170,41 @@ class description) or for any name a subclass' \code{.dispatch()} emits.
 
 \item{\code{handler}}{(function) called when the event fires, with that event's
 payload.}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+(class<StreamClient>) invisibly, self (chainable).
+}
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-StreamClient-on_event"></a>}}
+\if{latex}{\out{\hypertarget{method-StreamClient-on_event}{}}}
+\subsection{Method \code{on_event()}}{
+Register a Typed Lifecycle-Event Handler
+
+A parallel, structured surface to \verb{$on()}. Where \verb{$on(event, handler)}
+delivers each event's raw callback payload under a string key, \verb{$on_event()}
+delivers a single \strong{typed} object (see \link{ws_event}) for every lifecycle
+transition — \code{open}, \code{message}, \code{close}, \code{error}, \code{reconnect} — each with a
+lubridate UTC \code{timestamp} and per-type fields (a \code{close} carries \code{code} and
+\code{reason}; a \code{reconnect} carries \code{attempt} and \code{delay}; ...). This is the
+WebSocket analogue of the typed REST conditions: branch on
+\code{event$event_type} (against \link{WS_EVENT_TYPES}) and read fields as data.
+
+It is \strong{additive}: the raw \verb{$on()} callbacks fire exactly as before, so an
+existing consumer is unaffected. The typed object is built only when at least
+one \verb{$on_event()} handler is registered, so the parse-free hot path stays
+free when nothing listens.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{StreamClient$on_event(handler)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{handler}}{(function) called with a typed lifecycle event (see
+\link{ws_event}) on every lifecycle transition.}
 }
 \if{html}{\out{</div>}}
 }
