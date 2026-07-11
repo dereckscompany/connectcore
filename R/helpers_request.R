@@ -40,7 +40,16 @@ parse_json_response <- function(resp) {
   status <- httr2::resp_status(resp)
   if (status < 200L || status >= 300L) {
     body_text <- tryCatch(httr2::resp_body_string(resp), error = function(e) "<unreadable body>")
-    rlang::abort(paste0("HTTP error ", status, "\n", body_text))
+    # Typed condition (see [connectcore_conditions]): message stays byte-identical to
+    # the legacy `paste0("HTTP error ", status, "\n", body_text)`; classes/fields are
+    # additive, so a caller can tryCatch by status and read $status/$url instead of
+    # grepping the string.
+    abort_api_error(
+      status = status,
+      url = resp$url,
+      body = body_text,
+      message = paste0("HTTP error ", status, "\n", body_text)
+    )
   }
   return(httr2::resp_body_json(resp, simplifyVector = FALSE))
 }
@@ -67,7 +76,12 @@ fetch_server_time_ms <- function(base_url, time_endpoint, field = "serverTime") 
   parsed <- httr2::resp_body_json(httr2::req_perform(req), simplifyVector = FALSE)
   value <- parsed[[field]]
   if (is.null(value)) {
-    rlang::abort(sprintf("Failed to fetch server time: response has no '%s' field.", field))
+    # Typed condition (see [connectcore_conditions]): message stays byte-identical;
+    # a caller can tryCatch(connectcore_response_error = ...) and read $field.
+    abort_response_error(
+      message = sprintf("Failed to fetch server time: response has no '%s' field.", field),
+      field = field
+    )
   }
   return(assert_return_fetch_server_time_ms(as.numeric(value)))
 }

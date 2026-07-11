@@ -65,6 +65,16 @@ assert_return_StreamClient__on <- function(value) {
   return(value)
 }
 
+assert_args_StreamClient__on_event <- function(handler) {
+  assert_function(handler)
+  return(invisible(NULL))
+}
+
+assert_return_StreamClient__on_event <- function(value) {
+  assert_class(value, "StreamClient")
+  return(value)
+}
+
 assert_return_StreamClient__connect <- function(value) {
   assert_class(value, "StreamClient")
   return(value)
@@ -115,6 +125,23 @@ assert_args_hmac_query_sign <- function(req, keys, get_timestamp_ms, api_key_hea
 
 assert_return_hmac_query_sign <- function(value) {
   assert_class(value, "httr2_request")
+  return(value)
+}
+
+assert_args_scrub_url <- function(url, sensitive_params) {
+  if (!is.null(url)) {
+    assert_scalar_character(url)
+  }
+  assert_character(sensitive_params)
+  assert_no_missing_values(sensitive_params)
+  assert_minimum_length(sensitive_params, 1L)
+  return(invisible(NULL))
+}
+
+assert_return_scrub_url <- function(value) {
+  if (!is.null(value)) {
+    assert_scalar_character(value)
+  }
   return(value)
 }
 
@@ -339,6 +366,18 @@ assert_args_ws_backoff_delay <- function(attempt, cap_seconds) {
 assert_return_ws_backoff_delay <- function(value) {
   assert_scalar_double(value)
   assert_between(value, lower = 1, upper = Inf, upper_inclusive = FALSE)
+  return(value)
+}
+
+assert_args_ws_event <- function(event_type, fields) {
+  assert_scalar_character(event_type)
+  assert_value_in_set(event_type, c("open", "message", "error", "close", "reconnect"))
+  assert_list(fields)
+  return(invisible(NULL))
+}
+
+assert_return_ws_event <- function(value) {
+  assert_list(value)
   return(value)
 }
 

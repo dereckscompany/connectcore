@@ -11,9 +11,9 @@ An object of class \code{list} of length 8.
 WS_EVENTS
 }
 \description{
-The standard events \link{StreamClient} emits. A subclass' \code{.dispatch()}
-may emit additional, connector-specific names (e.g. one per message type);
-these are the ones the base guarantees. Reference them as e.g.
-\code{WS_EVENTS$MESSAGE}.
+The standard events \link{StreamClient} emits to the string-keyed
+\verb{$on(event, handler)} registry. A subclass' \code{.dispatch()} may emit additional,
+connector-specific names (e.g. one per message type); these are the ones the
+base guarantees. Reference them as e.g. \code{WS_EVENTS$MESSAGE}.
 }
 \keyword{datasets}
