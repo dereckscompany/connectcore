@@ -35,3 +35,26 @@ test_that("ws_file_sink returns a handler that appends frames plus a newline", {
 test_that("ws_file_sink enforces its contract", {
   expect_error(ws_file_sink("not-a-connection"))
 })
+
+# ---- ws_event: the typed lifecycle event object ----
+
+test_that("ws_event builds a typed event with a UTC timestamp and merged fields", {
+  ev <- ws_event("close", list(code = 1000L, reason = "bye"))
+  expect_type(ev, "list")
+  expect_identical(ev$event_type, "close")
+  expect_s3_class(ev$timestamp, "POSIXct")
+  expect_identical(attr(ev$timestamp, "tzone"), "UTC")
+  expect_identical(ev$code, 1000L)
+  expect_identical(ev$reason, "bye")
+})
+
+test_that("ws_event defaults to no extra fields", {
+  ev <- ws_event("open")
+  expect_named(ev, c("event_type", "timestamp"))
+})
+
+test_that("ws_event enforces its contract (event_type in the set; fields a list)", {
+  expect_error(ws_event("not-a-type"))
+  expect_error(ws_event(123))
+  expect_error(ws_event("open", fields = "not-a-list"))
+})

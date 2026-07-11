@@ -33,6 +33,20 @@
 #' - `"giveup"` — `max_reconnects` exhausted; the `$run()` loop will exit.
 #' - `"stale"` — the silence watchdog fired (no frame within `stale_timeout`).
 #'
+#' ### Typed lifecycle events (`$on_event()`)
+#' Alongside the string-keyed `$on()` callbacks above, `$on_event(handler)`
+#' delivers a single **typed** object (see [ws_event]) for every lifecycle
+#' transition — `open`, `message`, `close`, `error`, `reconnect` (see
+#' [WS_EVENT_TYPES]) — each with a lubridate UTC `timestamp` and per-type fields
+#' (`close` carries `code` + `reason`; `reconnect` carries `attempt` + `delay`;
+#' `open` carries `reconnect`; `message` carries `data`; `error` carries `error`).
+#' This is the WebSocket analogue of the typed REST conditions
+#' (`?connectcore_conditions`): branch on `event$event_type` and read fields as
+#' data instead of re-parsing a raw callback payload. It is **additive** — the
+#' `$on()` callbacks are unchanged — and the typed object is materialised only
+#' when an `$on_event()` handler is registered, so the parse-free hot path stays
+#' free by default.
+#'
 #' ### Connection management (handled for you)
 #' - **Auto-reconnect** with full-jitter exponential backoff, so a reconnect
 #'   storm cannot trip a connection rate limit.
@@ -108,6 +122,7 @@ StreamClient <- R6::R6Class(
       private$.stale_timeout <- stale_timeout
       private$.keepalive <- keepalive
       private$.handlers <- list()
+      private$.event_handlers <- list()
       return(invisible(assert_return_StreamClient__initialize(self)))
     },
 
@@ -124,6 +139,31 @@ StreamClient <- R6::R6Class(
       assert_args_StreamClient__on(event, handler)
       private$.handlers[[event]] <- c(private$.handlers[[event]], handler)
       return(invisible(assert_return_StreamClient__on(self)))
+    },
+
+    #' @description
+    #' Register a Typed Lifecycle-Event Handler
+    #'
+    #' A parallel, structured surface to `$on()`. Where `$on(event, handler)`
+    #' delivers each event's raw callback payload under a string key, `$on_event()`
+    #' delivers a single **typed** object (see [ws_event]) for every lifecycle
+    #' transition — `open`, `message`, `close`, `error`, `reconnect` — each with a
+    #' lubridate UTC `timestamp` and per-type fields (a `close` carries `code` and
+    #' `reason`; a `reconnect` carries `attempt` and `delay`; ...). This is the
+    #' WebSocket analogue of the typed REST conditions: branch on
+    #' `event$event_type` (against [WS_EVENT_TYPES]) and read fields as data.
+    #'
+    #' It is **additive**: the raw `$on()` callbacks fire exactly as before, so an
+    #' existing consumer is unaffected. The typed object is built only when at least
+    #' one `$on_event()` handler is registered, so the parse-free hot path stays
+    #' free when nothing listens.
+    #' @param handler (function) called with a typed lifecycle event (see
+    #'   [ws_event]) on every lifecycle transition.
+    #' @return (class<StreamClient>) invisibly, self (chainable).
+    on_event = function(handler) {
+      assert_args_StreamClient__on_event(handler)
+      private$.event_handlers <- c(private$.event_handlers, handler)
+      return(invisible(assert_return_StreamClient__on_event(self)))
     },
 
     #' @description
@@ -224,6 +264,7 @@ StreamClient <- R6::R6Class(
     .keepalive = 30,
     .ws = NULL,
     .handlers = NULL,
+    .event_handlers = NULL,
     .running = FALSE,
     .reconnect_attempts = 0L,
     .last_activity = 0,
@@ -264,6 +305,7 @@ StreamClient <- R6::R6Class(
         if (was_reconnect) {
           private$.emit("reconnected", event)
         }
+        private$.emit_event(WS_EVENT_TYPES$OPEN, list(reconnect = was_reconnect))
         return(invisible(NULL))
       })
       ws$onMessage(function(event) {
@@ -273,11 +315,24 @@ StreamClient <- R6::R6Class(
           msg <- rawToChar(msg) # binary frame carrying JSON/text
         }
         private$.dispatch(msg)
+        # Transport-level frame-received event (fires for every frame, independent
+        # of a subclass' .dispatch() routing); guarded, so the firehose stays free
+        # unless an $on_event() handler is attached.
+        private$.emit_event(WS_EVENT_TYPES$MESSAGE, list(data = msg))
         return(invisible(NULL))
       })
       ws$onClose(function(event) {
         private$.cancel_timers()
         private$.emit("close", event)
+        code <- NA_integer_
+        if (!is.null(event$code)) {
+          code <- as.integer(event$code)
+        }
+        reason <- NA_character_
+        if (!is.null(event$reason)) {
+          reason <- as.character(event$reason)
+        }
+        private$.emit_event(WS_EVENT_TYPES$CLOSE, list(code = code, reason = reason))
         if (isTRUE(private$.running)) {
           if (isTRUE(private$.proactive_closing)) {
             private$.proactive_closing <- FALSE
@@ -290,6 +345,7 @@ StreamClient <- R6::R6Class(
       })
       ws$onError(function(event) {
         private$.emit("error", event)
+        private$.emit_event(WS_EVENT_TYPES$ERROR, list(error = event))
         if (isTRUE(private$.running) && private$.auto_reconnect && !private$.is_connecting_or_open()) {
           private$.schedule_reconnect()
         }
@@ -323,6 +379,21 @@ StreamClient <- R6::R6Class(
       return(invisible(NULL))
     },
 
+    # Deliver a typed lifecycle event (see ws_event) to every $on_event() handler.
+    # Guarded on handler presence so the typed object — and its timestamp — is
+    # never materialised when nobody listens; this keeps the parse-free hot path
+    # (onMessage) free by default. Additive: the raw .emit() above is unchanged.
+    .emit_event = function(event_type, fields = list()) {
+      if (length(private$.event_handlers) == 0L) {
+        return(invisible(NULL))
+      }
+      event <- ws_event(event_type, fields)
+      for (h in private$.event_handlers) {
+        private$.safe_call(h, event)
+      }
+      return(invisible(NULL))
+    },
+
     # A throwing handler warns but never kills the loop.
     .safe_call = function(handler, payload) {
       tryCatch(
@@ -347,6 +418,10 @@ StreamClient <- R6::R6Class(
       }
       delay <- ws_backoff_delay(private$.reconnect_attempts, private$.backoff_cap)
       private$.emit("reconnecting", list(attempt = private$.reconnect_attempts, delay = delay))
+      private$.emit_event(
+        WS_EVENT_TYPES$RECONNECT,
+        list(attempt = private$.reconnect_attempts, delay = delay)
+      )
       private$.reconnect_timer <- later::later(
         function() {
           private$.reconnect_timer <- NULL

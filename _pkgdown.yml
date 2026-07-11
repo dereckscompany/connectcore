@@ -71,11 +71,15 @@ reference:
       - env_or
       - url_getter
   - title: WebSocket helpers
-    desc: Backoff, event constants, and a file sink for stream recorders.
+    desc: >
+      Backoff, event constants, typed lifecycle events, and a file sink for stream
+      recorders.
     contents:
       - ws_backoff_delay
       - ws_file_sink
+      - ws_event
       - WS_EVENTS
+      - WS_EVENT_TYPES
   - title: Test harness
     desc: >
       A shared HTTP-mock toolkit over httr2's native mock hook, for testing and
