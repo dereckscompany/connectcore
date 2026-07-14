@@ -64,8 +64,11 @@ RestClient <- R6::R6Class(
     #'   bytes). A single `.request()` may override it. Default `"json"`.
     #' @param user_agent (scalar<character>) the `User-Agent` header. Default
     #'   `"dereckscompany/connectcore"`.
-    #' @param max_tries (scalar<count in [1, Inf[>) retry up to this many times on a
-    #'   transient failure. Default `1` (no retry).
+    #' @param max_tries (scalar<count in [1, Inf[>) for an idempotent GET only,
+    #'   retry up to this many times on a transient failure (408, 429, any 5xx, or
+    #'   a connection failure). A non-GET verb (e.g. an order POST) is never
+    #'   auto-retried, so a request can never be silently double-sent. Default `1`
+    #'   (no retry).
     #' @param throttle_rate (scalar<numeric in ]0, Inf[> | NULL) client-side rate
     #'   cap in requests/second. Default `NULL` (no throttle).
     #' @return (class<RestClient>) invisibly, self.

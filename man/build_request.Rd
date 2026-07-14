@@ -75,8 +75,11 @@ Default \code{30}.}
 \item{user_agent}{(scalar<character>) the \code{User-Agent} header. Default
 \code{"dereckscompany/connectcore"}.}
 
-\item{max_tries}{(scalar<count in [1, Inf[>) retry up to this many times with
-backoff on a transient failure. \code{1} (default) disables retry.}
+\item{max_tries}{(scalar<count in [1, Inf[>) for an idempotent \strong{GET only},
+retry up to this many times with jittered backoff on a transient failure
+(408, 429, any 5xx, or a connection failure; \code{Retry-After} honoured). \code{1}
+(default) disables retry. A non-\code{GET} verb is never auto-retried regardless
+of this value, so an order submission can never be silently double-sent.}
 
 \item{throttle_rate}{(scalar<numeric in ]0, Inf[> | NULL) client-side rate cap
 in requests per second. \code{NULL} (default) disables throttling.}
@@ -96,8 +99,10 @@ data and detect errors), and \code{body_format} (how a request body is encoded).
 }
 \details{
 Unlike the per-venue copies this generalises, it also adds optional
-\code{req_retry} and \code{req_throttle} — retry/backoff and client-side rate limiting
-that no individual connector currently has.
+\code{req_retry} (a hard GET-only carve-out — a non-idempotent verb is never
+auto-retried, so an order submission cannot be silently double-sent) and
+\code{req_throttle} — retry/backoff and client-side rate limiting that no
+individual connector previously had.
 
 Signing runs \strong{after} the body is set, so a venue that signs the exact body
 bytes (\code{body_format = "raw"}) can read them off \code{req$body$data} inside \code{sign}

@@ -1,4 +1,11 @@
-# connectcore 0.4.0
+# connectcore 0.5.0
+
+Request retry is now a hard **GET-only carve-out**, so opting into `max_tries > 1` can never make a non-idempotent verb resend itself. Before, `build_request()` attached `req_retry` to any method once `max_tries > 1`; a caller who set `max_tries` for convenient backfill resilience would also have silently retried an order `POST` or a cancel `DELETE` on a transient blip — a resend that can double-submit. Retry is fundamentally safe only for an idempotent request, and in live trading the trader layer is the single retry authority (it routes by typed error class and manages cooldowns), so wrapper-level retries belong to research and backfill GETs alone.
+
+* **GET-only retry** — `build_request()` attaches `req_retry` only when the method is `GET`. A non-`GET` verb is performed exactly once regardless of `max_tries`, so an order submission can never be silently resent. This is enforced in the one shared funnel, so every connector that extends `RestClient` inherits the guarantee without repeating it.
+* **Broadened transient set** — an auto-retried GET now treats `408`, `429`, and any `5xx` as transient (previously httr2's default `429`/`503` only), and retries a connection-level failure (`retry_on_failure = TRUE`) — always safe to re-send for an idempotent GET. `Retry-After` is honoured by httr2's default backoff. This makes the documented backfill contract ("retry on a timeout, a dropped connection, a 5xx, or a 429") actually true.
+* **Backward compatible** — the default `max_tries = 1` still disables retry, and no existing error *message* changes. The only behavioural change lands on callers that already opted into `max_tries > 1` (e.g. `binance_backfill_klines()`, an idempotent GET): its retries now also cover `408`/`5xx`/connection failures, matching its own documentation.
+
 
 Typed conditions on every transport failure, so a caller branches on error type and reads structured fields instead of grepping the message string. When a REST call fails, the transport base used to throw a bare message with the HTTP status buried in the text; a caller who wanted to retry on 429 or re-auth on 401 had to regex the string, and there was no way to catch one failure class without catching all of them. `connectcore` is the base every connector extends, so a condition raised here is inherited fleet-wide — one place to fix.
 

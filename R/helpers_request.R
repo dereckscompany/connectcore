@@ -116,8 +116,10 @@ next_nonce <- function() {
 #' data and detect errors), and `body_format` (how a request body is encoded).
 #'
 #' Unlike the per-venue copies this generalises, it also adds optional
-#' `req_retry` and `req_throttle` — retry/backoff and client-side rate limiting
-#' that no individual connector currently has.
+#' `req_retry` (a hard GET-only carve-out — a non-idempotent verb is never
+#' auto-retried, so an order submission cannot be silently double-sent) and
+#' `req_throttle` — retry/backoff and client-side rate limiting that no
+#' individual connector previously had.
 #'
 #' Signing runs **after** the body is set, so a venue that signs the exact body
 #' bytes (`body_format = "raw"`) can read them off `req$body$data` inside `sign`
@@ -157,8 +159,11 @@ next_nonce <- function() {
 #'   Default `30`.
 #' @param user_agent (scalar<character>) the `User-Agent` header. Default
 #'   `"dereckscompany/connectcore"`.
-#' @param max_tries (scalar<count in [1, Inf[>) retry up to this many times with
-#'   backoff on a transient failure. `1` (default) disables retry.
+#' @param max_tries (scalar<count in [1, Inf[>) for an idempotent **GET only**,
+#'   retry up to this many times with jittered backoff on a transient failure
+#'   (408, 429, any 5xx, or a connection failure; `Retry-After` honoured). `1`
+#'   (default) disables retry. A non-`GET` verb is never auto-retried regardless
+#'   of this value, so an order submission can never be silently double-sent.
 #' @param throttle_rate (scalar<numeric in ]0, Inf[> | NULL) client-side rate cap
 #'   in requests per second. `NULL` (default) disables throttling.
 #' @param ctx (list) extra context forwarded to `sign` (e.g. a timestamp source).
@@ -243,8 +248,25 @@ build_request <- function(
 
   # The envelope parser owns error detection, so disable httr2's auto-error.
   req <- httr2::req_error(req, is_error = function(resp) FALSE)
-  if (max_tries > 1L) {
-    req <- httr2::req_retry(req, max_tries = as.integer(max_tries))
+  # Retry is a hard GET-only carve-out. Only an idempotent GET is ever
+  # auto-retried; a non-idempotent verb (an order POST, a cancel DELETE) is
+  # performed exactly once even when max_tries > 1, so a request can never be
+  # silently resent and double-submitted. In live trading the trader layer is the
+  # single retry authority (it routes by typed error class and manages
+  # cooldowns); this funnel-level convenience serves research and backfill GETs
+  # that opt in. Transient set: 408, 429, and any 5xx, plus connection failures
+  # (safe to re-send for an idempotent GET). Retry-After is honoured by httr2's
+  # default backoff.
+  if (max_tries > 1L && identical(toupper(method), "GET")) {
+    req <- httr2::req_retry(
+      req,
+      max_tries = as.integer(max_tries),
+      retry_on_failure = TRUE,
+      is_transient = function(resp) {
+        status <- httr2::resp_status(resp)
+        return(status %in% c(408L, 429L) || status >= 500L)
+      }
+    )
   }
   if (!is.null(throttle_rate)) {
     req <- httr2::req_throttle(req, rate = throttle_rate)

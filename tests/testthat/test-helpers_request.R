@@ -208,3 +208,93 @@ test_that("build_request enforces its contract", {
   expect_error(build_request(base_url = 123, endpoint = "/o"))
   expect_error(build_request(base_url = "https://x", endpoint = "/o", body_format = "xml"))
 })
+
+# ---- Retry: the hard GET-only carve-out -------------------------------------
+
+test_that("build_request attaches a retry policy to a GET but never to a non-GET", {
+  get_req <- build_request(
+    base_url = "https://api.test",
+    endpoint = "/p",
+    method = "GET",
+    max_tries = 3L,
+    .perform = echo_perform,
+    parse_envelope = echo_parse
+  )
+  expect_equal(get_req$policies$retry_max_tries, 3)
+
+  # A non-idempotent verb never gets a retry policy, whatever max_tries says.
+  post_req <- build_request(
+    base_url = "https://api.test",
+    endpoint = "/orders",
+    method = "POST",
+    max_tries = 3L,
+    .perform = echo_perform,
+    parse_envelope = echo_parse
+  )
+  expect_null(post_req$policies$retry_max_tries)
+
+  delete_req <- build_request(
+    base_url = "https://api.test",
+    endpoint = "/orders/1",
+    method = "DELETE",
+    max_tries = 3L,
+    .perform = echo_perform,
+    parse_envelope = echo_parse
+  )
+  expect_null(delete_req$policies$retry_max_tries)
+})
+
+# httr2's `req_perform()` short-circuits its retry loop whenever the `httr2_mock`
+# option is set, so `local_mocked_responses()` returns the first response without
+# ever retrying. To exercise the real retry loop we mock the per-attempt fetch
+# (`httr2:::req_perform1`) instead, letting `req_perform()` re-drive it against
+# the policy `build_request()` assembled; `sys_sleep` is stubbed so the jittered
+# backoff does not slow the suite.
+test_that("a POST is performed exactly once even with max_tries > 1 (no double-submit)", {
+  n <- 0L
+  testthat::local_mocked_bindings(
+    sys_sleep = function(seconds, ...) invisible(),
+    req_perform1 = function(req, req_prep, path, handle, resend_count) {
+      n <<- n + 1L
+      return(httr2::response(status_code = 500L, body = charToRaw("boom")))
+    },
+    .package = "httr2"
+  )
+  expect_error(
+    build_request(
+      base_url = "https://api.test",
+      endpoint = "/orders",
+      method = "POST",
+      max_tries = 5L
+    ),
+    "HTTP error 500"
+  )
+  expect_identical(n, 1L) # a non-idempotent verb is never silently resent
+})
+
+test_that("a transient 500 on a GET is retried and then succeeds (max_tries = 3)", {
+  n <- 0L
+  testthat::local_mocked_bindings(
+    sys_sleep = function(seconds, ...) invisible(),
+    req_perform1 = function(req, req_prep, path, handle, resend_count) {
+      n <<- n + 1L
+      if (n == 1L) {
+        return(httr2::response(status_code = 500L, body = charToRaw("transient")))
+      }
+      return(httr2::response(
+        status_code = 200L,
+        headers = list("content-type" = "application/json"),
+        body = charToRaw('{"ok":true}')
+      ))
+    },
+    .package = "httr2"
+  )
+  out <- build_request(
+    base_url = "https://api.test",
+    endpoint = "/v1/ping",
+    method = "GET",
+    max_tries = 3L
+  )
+  expect_true(out$ok)
+  expect_identical(n, 2L) # retried once on the 500, then succeeded
+})
