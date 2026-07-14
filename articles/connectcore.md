@@ -1,0 +1,114 @@
+# Extending connectcore
+
+`connectcore` is a base to extend, not an end-user package. It carries
+the transport plumbing a data-source connector repeats — an httr2
+request funnel, request signing, JSON→`data.table` coercion, and a
+reconnecting WebSocket loop — so a connector supplies only what is
+genuinely source-specific and inherits the rest. Transport only: no
+domain vocabulary, no domain dependencies.
+
+Two things are usable directly — the exported helpers, and
+`StreamClient` (it is concrete; a recorder needs no subclass). The REST
+side is extend-only: `RestClient`’s request funnel is private, reached
+by subclassing.
+
+## The helpers, standalone
+
+The coercion and time helpers are plain functions — call them anywhere:
+
+``` r
+
+records <- list(
+  list(openTime = 1700000000000, closePrice = "100.5", symbol = "ABC"),
+  list(openTime = 1700000060000, closePrice = "101.0")
+)
+as_dt_list(records)
+#>    open_time close_price symbol
+#>        <num>      <char> <char>
+#> 1:   1.7e+12       100.5    ABC
+#> 2:   1.7e+12       101.0   <NA>
+
+epoch_to_datetime(1700000000000, "ms")
+#> [1] "2023-11-14 22:13:20 UTC"
+```
+
+## Extending the REST base
+
+Subclass `RestClient` and override the two private seams. `.sign()`
+authenticates a request (the default is no-auth); `.parse_envelope()`
+turns a response into data and raises on error (the default is “JSON
+body, error on non-2xx”). Endpoint methods delegate to the private
+`.request()` funnel, which injects the base URL, credentials, both
+seams, and the retry/throttle config.
+
+``` r
+
+MyClient <- R6::R6Class(
+  "MyClient",
+  inherit = connectcore::RestClient,
+  public = list(
+    initialize = function(keys = NULL, base_url = "https://api.example.com") {
+      return(super$initialize(keys = keys, base_url = base_url, body_format = "query"))
+    },
+    # A public endpoint method — the funnel is private, so this is how callers
+    # reach it.
+    ticker = function(symbol) {
+      return(private$.request("/v1/ticker", query = list(symbol = symbol)))
+    }
+  ),
+  private = list(
+    # Authenticate by delegating to the shared HMAC-query helper.
+    .sign = function(req, keys, ctx) {
+      return(connectcore::hmac_query_sign(req, keys, ctx$get_timestamp_ms))
+    }
+  )
+)
+
+client <- MyClient$new()
+client$is_async
+#> [1] FALSE
+```
+
+Constructing with `async = TRUE` makes every endpoint return a
+[`promises::promise`](https://rstudio.github.io/promises/reference/promise.html)
+instead of a value — the class is mode-transparent, so the method bodies
+above do not change.
+
+## Extending the WebSocket base
+
+`StreamClient` is event-driven, like `ws.on(...)` in Node. A minimal
+recorder needs no subclass — register a handler and run the loop:
+
+``` r
+
+ws <- StreamClient$new("wss://stream.example.com", stale_timeout = 120)
+ws$on("open", function(e) ws$send('{"subscribe": "all"}'))
+ws$on("message", function(msg) cat(msg, "\n"))
+ws$run() # keeps the process alive and pumps the event loop
+```
+
+Subclass it only to classify frames into your own events (`.dispatch()`)
+or to replay subscriptions after every (re)connect (`.resubscribe()`);
+the reconnect / keepalive / watchdog machinery is inherited.
+
+``` r
+
+MyStream <- R6::R6Class(
+  "MyStream",
+  inherit = connectcore::StreamClient,
+  private = list(
+    # Turn one raw frame into typed events instead of the default "message".
+    .dispatch = function(raw) {
+      msg <- jsonlite::fromJSON(raw, simplifyVector = FALSE)
+      return(private$.emit(msg$type %||% "message", msg))
+    },
+    # Re-send subscriptions after each (re)connect.
+    .resubscribe = function() {
+      return(self$send('{"subscribe": "trades"}'))
+    }
+  )
+)
+```
+
+That is the whole contract: supply the source specifics, inherit the
+transport.
