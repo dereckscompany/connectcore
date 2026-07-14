@@ -306,7 +306,7 @@ assert_return_next_nonce <- function(value) {
   return(value)
 }
 
-assert_args_build_request <- function(base_url, endpoint, method, query, body, keys, sign, parse_envelope, body_format, raw_content_type, .perform, .parser, is_async, timeout, user_agent, max_tries, throttle_rate, ctx) {
+assert_args_build_request <- function(base_url, endpoint, method, query, body, keys, sign, parse_envelope, body_format, raw_content_type, .perform, .parser, is_async, timeout, user_agent, max_tries, idempotent, throttle_rate, ctx) {
   assert_scalar_character(base_url)
   assert_scalar_character(endpoint)
   assert_scalar_character(method)
@@ -343,6 +343,7 @@ assert_args_build_request <- function(base_url, endpoint, method, query, body, k
   assert_scalar_character(user_agent)
   assert_scalar_count(max_tries)
   assert_between(max_tries, lower = 1)
+  assert_scalar_logical(idempotent)
   if (!is.null(throttle_rate)) {
     assert_scalar_double(throttle_rate)
     assert_between(throttle_rate, lower = 0, lower_inclusive = FALSE, upper = Inf, upper_inclusive = FALSE)

@@ -211,7 +211,8 @@ test_that("build_request enforces its contract", {
 
 # ---- Retry: the hard GET-only carve-out -------------------------------------
 
-test_that("build_request attaches a retry policy to a GET but never to a non-GET", {
+test_that("retry attaches on idempotency, not the verb (default GET-only, overridable)", {
+  # GET default: idempotent -> retry attached.
   get_req <- build_request(
     base_url = "https://api.test",
     endpoint = "/p",
@@ -222,7 +223,7 @@ test_that("build_request attaches a retry policy to a GET but never to a non-GET
   )
   expect_equal(get_req$policies$retry_max_tries, 3)
 
-  # A non-idempotent verb never gets a retry policy, whatever max_tries says.
+  # POST default: non-idempotent -> never a retry policy, whatever max_tries says.
   post_req <- build_request(
     base_url = "https://api.test",
     endpoint = "/orders",
@@ -242,6 +243,31 @@ test_that("build_request attaches a retry policy to a GET but never to a non-GET
     parse_envelope = echo_parse
   )
   expect_null(delete_req$policies$retry_max_tries)
+
+  # A read-only POST explicitly marked idempotent -> retry attached (the
+  # hyperliquid /info case: query encoded in the body).
+  idem_post <- build_request(
+    base_url = "https://api.test",
+    endpoint = "/info",
+    method = "POST",
+    max_tries = 3L,
+    idempotent = TRUE,
+    .perform = echo_perform,
+    parse_envelope = echo_parse
+  )
+  expect_equal(idem_post$policies$retry_max_tries, 3)
+
+  # A GET explicitly marked non-idempotent -> no retry policy.
+  non_idem_get <- build_request(
+    base_url = "https://api.test",
+    endpoint = "/p",
+    method = "GET",
+    max_tries = 3L,
+    idempotent = FALSE,
+    .perform = echo_perform,
+    parse_envelope = echo_parse
+  )
+  expect_null(non_idem_get$policies$retry_max_tries)
 })
 
 # httr2's `req_perform()` short-circuits its retry loop whenever the `httr2_mock`

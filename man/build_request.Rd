@@ -21,6 +21,7 @@ build_request(
   timeout = 30,
   user_agent = "dereckscompany/connectcore",
   max_tries = 1L,
+  idempotent = identical(toupper(method), "GET"),
   throttle_rate = NULL,
   ctx = list()
 )
@@ -75,11 +76,17 @@ Default \code{30}.}
 \item{user_agent}{(scalar<character>) the \code{User-Agent} header. Default
 \code{"dereckscompany/connectcore"}.}
 
-\item{max_tries}{(scalar<count in [1, Inf[>) for an idempotent \strong{GET only},
-retry up to this many times with jittered backoff on a transient failure
-(408, 429, any 5xx, or a connection failure; \code{Retry-After} honoured). \code{1}
-(default) disables retry. A non-\code{GET} verb is never auto-retried regardless
-of this value, so an order submission can never be silently double-sent.}
+\item{max_tries}{(scalar<count in [1, Inf[>) for an \strong{idempotent} request
+only (see \code{idempotent}), retry up to this many times with jittered backoff
+on a transient failure (408, 429, any 5xx, or a connection failure;
+\code{Retry-After} honoured). \code{1} (default) disables retry.}
+
+\item{idempotent}{(scalar<logical>) whether this request is safe to re-send.
+Retry is attached only when \code{max_tries > 1} \strong{and} this is \code{TRUE}. Defaults
+to \code{TRUE} for \code{GET} and \code{FALSE} for every other verb, so a non-\code{GET} verb is
+never auto-retried by default. A venue whose reads are POST (query in the
+body) may pass \code{TRUE} on that read path; a write (order submission, cancel)
+must NEVER be marked idempotent (see the retry-safety rule in Details).}
 
 \item{throttle_rate}{(scalar<numeric in ]0, Inf[> | NULL) client-side rate cap
 in requests per second. \code{NULL} (default) disables throttling.}
@@ -99,12 +106,23 @@ data and detect errors), and \code{body_format} (how a request body is encoded).
 }
 \details{
 Unlike the per-venue copies this generalises, it also adds optional
-\code{req_retry} (a hard GET-only carve-out — a non-idempotent verb is never
-auto-retried, so an order submission cannot be silently double-sent) and
+\code{req_retry} (gated on idempotency — see the retry-safety rule below) and
 \code{req_throttle} — retry/backoff and client-side rate limiting that no
 individual connector previously had.
 
 Signing runs \strong{after} the body is set, so a venue that signs the exact body
 bytes (\code{body_format = "raw"}) can read them off \code{req$body$data} inside \code{sign}
 and add the signature header before the request is performed.
+
+\strong{Retry safety (hard rule).} Retry is attached only when \code{max_tries > 1}
+\strong{and} \code{idempotent} is \code{TRUE}. \code{idempotent} defaults to \code{TRUE} for \code{GET} and
+\code{FALSE} for every other verb, so an order submission is never auto-retried by
+default and can never be silently resent and double-submitted. A venue whose
+reads are POST (the query is encoded in the request body) MAY pass
+\code{idempotent = TRUE} on that read path to opt it into retry. A \strong{write} (an
+order submission, a cancel) must \strong{NEVER} be marked \code{idempotent = TRUE} — a
+resend could double-submit. In live trading the trader layer is the single
+retry authority (it routes by typed error class and manages cooldowns); this
+funnel-level convenience is for research and backfill reads only. The transient
+set is 408, 429, any 5xx, and connection failures; \code{Retry-After} is honoured.
 }
