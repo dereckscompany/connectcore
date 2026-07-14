@@ -112,8 +112,11 @@ bytes). A single \code{.request()} may override it. Default \code{"json"}.}
 \item{\code{user_agent}}{(scalar<character>) the \code{User-Agent} header. Default
 \code{"dereckscompany/connectcore"}.}
 
-\item{\code{max_tries}}{(scalar<count in [1, Inf[>) retry up to this many times on a
-transient failure. Default \code{1} (no retry).}
+\item{\code{max_tries}}{(scalar<count in [1, Inf[>) for an idempotent GET only,
+retry up to this many times on a transient failure (408, 429, any 5xx, or
+a connection failure). A non-GET verb (e.g. an order POST) is never
+auto-retried, so a request can never be silently double-sent. Default \code{1}
+(no retry).}
 
 \item{\code{throttle_rate}}{(scalar<numeric in ]0, Inf[> | NULL) client-side rate
 cap in requests/second. Default \code{NULL} (no throttle).}
