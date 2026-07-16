@@ -18,6 +18,10 @@ knitr::opts_chunk$set(
 <!-- badges: start -->
 <!-- badges: end -->
 
+**In plain terms:** every package in this project that talks to an outside service — a crypto exchange, a market-data feed, a ship-tracking stream — has to do the same unglamorous plumbing: open a connection, send requests, wait for replies, retry when the network hiccups, hold a live socket open and notice when it quietly dies, and tidy the raw responses into a consistent shape. This package is that plumbing, written once and shared, so each new connector inherits it instead of rebuilding it. It deliberately knows nothing about prices, orders or ships — only about moving bytes reliably — which is what lets every connector built on top of it stay small and consistent. Think of it as the standard chassis all of our data connectors sit on. Its real value is that the hard lessons from building the earlier connectors are already baked in, so the next one starts ahead.
+
+## Technical overview
+
 A shared transport base for R data-source connectors. It owns **transport only** —
 no domain vocabulary, no domain dependencies. You build a connector by extending
 two base classes and supplying what is genuinely source-specific; everything else
