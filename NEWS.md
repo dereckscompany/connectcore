@@ -1,3 +1,13 @@
+# connectcore 0.5.1
+
+**A test fixture used a real captured timestamp instead of a made-up one, and the mock-harness documentation overstated where fixtures come from.** In plain English: a test for the shared `ms_to_datetime()` helper hard-coded `1729159459033`, which is not an arbitrary number — it is the exact millisecond instant (2024-10-17T10:04:19.033 UTC) that also appears as a capture timestamp in the kucoin package's fixtures, meaning a test value and a real recorded moment were the same number. Separately, the roxygen docs for `mock_response()` and `load_fixtures()`, and a line in the README, described fixtures as "real captured" JSON — every fixture in this fleet is authored synthetic data, never a live capture, and the wording was simply wrong.
+
+- `tests/testthat/test-utils_time.R`: replaced `1729159459033` (and its derived seconds/fractional forms) with `1767571200000` (2026-01-05T00:00:00.000 UTC), a fictional instant on a clean grid, across all four affected `test_that()` blocks.
+- `R/mock.R`: reworded the `mock_response()` and `load_fixtures()` roxygen text from "real captured"/"a connector's captured fixtures" to "authored synthetic fixture files (never live captures; fleet rule ratified 2026-07-05)".
+- `README.Rmd`: same wording correction in the "Testing your connector" section; regenerated `README.md` via `scripts/BUILD.sh readme`.
+- `man/mock_response.Rd`, `man/load_fixtures.Rd`: regenerated via `scripts/BUILD.sh document`.
+- `NEWS.md`: added a NOTE under the 0.2.0 entry that introduced `load_fixtures()` and `mock_response()`, pointing at this release for the corrected fixture-provenance wording (the historical entry's own text is left as written).
+
 # connectcore 0.5.0
 
 Request retry is now gated on **idempotency**, so opting into `max_tries > 1` can never make a write resend itself. Before, `build_request()` attached `req_retry` to any method once `max_tries > 1`; a caller who set `max_tries` for convenient backfill resilience would also have silently retried an order `POST` or a cancel `DELETE` on a transient blip — a resend that can double-submit. Retry is fundamentally safe only for an idempotent request, and in live trading the trader layer is the single retry authority (it routes by typed error class and manages cooldowns), so wrapper-level retries belong to research and backfill reads alone.
@@ -80,6 +90,11 @@ adds new exports. Migrating the connectors onto it is a follow-up per connector.
   a named list keyed by file basename; the value is the raw JSON string (pairs with
   `mock_response()`'s verbatim path) or the parsed list (`parse = TRUE`). How a
   connector loads its real captured fixtures into a route table.
+
+  NOTE (added in 0.5.1): the fixtures this release describes are, and always
+  were, authored synthetic files, never live captures. The "real captured"
+  wording above and in the `mock_response()` entry further up this section is
+  stale terminology; see the 0.5.1 entry for the corrected phrasing.
 
 * **`jsonlite`** moves to Imports (the harness JSON-encodes/decodes bodies);
   `withr` (already a Suggest) backs the scoped activators.

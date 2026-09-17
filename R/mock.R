@@ -26,11 +26,13 @@
 #' Build a mock `httr2` response from fixture data
 #'
 #' The single response constructor every mocked route resolves to. It accepts
-#' fixture data in three shapes, mirroring how connectors capture fixtures:
+#' fixture data in three shapes, mirroring how connectors organise their
+#' authored synthetic fixture files (never live captures; fleet rule ratified
+#' 2026-07-05):
 #' * an already-built `httr2_response` is returned **unchanged** (the pass-through
 #'   path -- e.g. a 204 no-content or a hand-built error response);
 #' * a single character string is used **verbatim** as the body (the
-#'   real-captured-JSON path -- a fixture file read in as one string);
+#'   authored-fixture-JSON path -- a fixture file read in as one string);
 #' * anything else is JSON-encoded with [jsonlite::toJSON()]
 #'   (`auto_unbox = TRUE, null = "null", digits = NA`), matching the live wire.
 #'
@@ -250,7 +252,8 @@ local_mock_api <- function(routes, .env = parent.frame()) {
 #' value is the raw JSON string (`parse = FALSE`, the verbatim path that pairs with
 #' [mock_response()]'s string-body case) or the parsed list
 #' (`parse = TRUE`, via [jsonlite::fromJSON()] with `simplifyVector = FALSE`). This
-#' is how a connector loads its real captured fixtures into a route table.
+#' is how a connector loads its authored synthetic fixture files (never live
+#' captures; fleet rule ratified 2026-07-05) into a route table.
 #'
 #' @param dir (scalar<character>) a directory holding `*.json` fixture files.
 #' @param parse (scalar<logical>) if `TRUE`, parse each file to a list; if `FALSE`

@@ -22,5 +22,6 @@ file's basename without the extension (\code{btc_book.json} -> \code{btc_book}).
 value is the raw JSON string (\code{parse = FALSE}, the verbatim path that pairs with
 \code{\link[=mock_response]{mock_response()}}'s string-body case) or the parsed list
 (\code{parse = TRUE}, via \code{\link[jsonlite:fromJSON]{jsonlite::fromJSON()}} with \code{simplifyVector = FALSE}). This
-is how a connector loads its real captured fixtures into a route table.
+is how a connector loads its authored synthetic fixture files (never live
+captures; fleet rule ratified 2026-07-05) into a route table.
 }
