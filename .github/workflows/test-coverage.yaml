@@ -43,7 +43,7 @@ jobs:
           # Get percentage for badge
           pct <- covr::percent_coverage(cov)
 
-          # Determine badge color
+          # Determine badge colour
           color <- if (pct >= 80) "brightgreen" else if (pct >= 60) "yellow" else "red"
 
           # Create output directory
