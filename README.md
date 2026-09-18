@@ -5,19 +5,19 @@
 
 <!-- badges: end -->
 
-**In plain terms:** every package in this project that talks to an
-outside service — a crypto exchange, a market-data feed, a ship-tracking
-stream — has to do the same unglamorous plumbing: open a connection,
-send requests, wait for replies, retry when the network hiccups, hold a
-live socket open and notice when it quietly dies, and tidy the raw
-responses into a consistent shape. This package is that plumbing,
-written once and shared, so each new connector inherits it instead of
-rebuilding it. It deliberately knows nothing about prices, orders or
-ships — only about moving bytes reliably — which is what lets every
-connector built on top of it stay small and consistent. Think of it as
-the standard chassis all of our data connectors sit on. Its real value
-is that the hard lessons from building the earlier connectors are
-already baked in, so the next one starts ahead.
+Every package in this project that talks to an outside service — a
+crypto exchange, a market-data feed, a ship-tracking stream — has to do
+the same unglamorous plumbing: open a connection, send requests, wait
+for replies, retry when the network hiccups, hold a live socket open and
+notice when it quietly dies, and tidy the raw responses into a
+consistent shape. This package is that plumbing, written once and
+shared, so each new connector inherits it instead of rebuilding it. It
+deliberately knows nothing about prices, orders or ships — only about
+moving bytes reliably — which is what lets every connector built on top
+of it stay small and consistent. Think of it as the standard chassis all
+of our data connectors sit on. Its real value is that the hard lessons
+from building the earlier connectors are already baked in, so the next
+one starts ahead.
 
 ## Technical overview
 
@@ -40,7 +40,7 @@ taught us, so the next one starts with the lessons already baked in.
   methods.** Every call flows through one `private$.request()`, so
   signing, the error envelope, retry, and throttle live in one place
   instead of scattered across endpoints. The funnel covers the awkward
-  cases too: `body_format = "raw"` sends a pre-serialized body
+  cases too: `body_format = "raw"` sends a pre-serialised body
   **byte-verbatim** (for venues that sign the exact body bytes — no
   `NULL`-pruning or pretty-printing), and `.request(base_url = ...)`
   overrides the host for a single call (for dual-host venues).
@@ -119,7 +119,7 @@ reconnect storm can never trip a server’s connection rate limit:
 
 ``` r
 vapply(1:5, function(attempt) ws_backoff_delay(attempt, cap_seconds = 60), numeric(1))
-#> [1]  1  1  7  2 32
+#> [1] 1 2 4 9 7
 ```
 
 ## Testing your connector
@@ -172,6 +172,6 @@ synthetic fixture files (never live captures; fleet rule ratified
 2026-07-05) into a named route table; and `local_mock_api()` is the
 `withr::local_*` companion for use inside a `test_that()` block.
 
-## License
+## Licence
 
 MIT

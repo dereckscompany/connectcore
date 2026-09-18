@@ -144,7 +144,7 @@ next_nonce <- function() {
 #'   vector-valued entry repeats its key (`.multi = "explode"`), e.g.
 #'   `ids = c("A", "B")` becomes `ids=A&ids=B`.
 #' @param body (list | scalar<character> | raw | NULL) request body. For
-#'   `body_format = "raw"` it is a pre-serialized scalar `character` (or `raw`)
+#'   `body_format = "raw"` it is a pre-serialised scalar `character` (or `raw`)
 #'   sent verbatim; otherwise a `list` whose `NULL` entries are dropped. Default
 #'   `NULL`.
 #' @param keys (list | NULL) credentials passed to `sign`; `NULL` skips signing.
@@ -156,7 +156,7 @@ next_nonce <- function() {
 #'   `body` is encoded: a pretty-printed JSON body (`NULL` fields pruned), merged
 #'   into the query string (some signed APIs), ignored, or — for `"raw"` — sent
 #'   byte-verbatim via [httr2::req_body_raw()] with no pruning, pretty-printing,
-#'   or re-encoding (the caller owns serialization; required by venues that sign
+#'   or re-encoding (the caller owns serialisation; required by venues that sign
 #'   the exact body bytes). Default `"json"`.
 #' @param raw_content_type (scalar<character>) the `Content-Type` for a `"raw"`
 #'   body. Ignored unless `body_format = "raw"`. Default `"application/json"`.
@@ -240,7 +240,7 @@ build_request <- function(
   req <- httr2::req_user_agent(req, user_agent)
 
   query <- query[!vapply(query, is.null, logical(1))]
-  # A raw body is pre-serialized and sent byte-verbatim, so it must NOT be
+  # A raw body is pre-serialised and sent byte-verbatim, so it must NOT be
   # NULL-pruned (that operates on a list and would corrupt the exact bytes).
   if (body_format != "raw" && !is.null(body)) {
     body <- body[!vapply(body, is.null, logical(1))]
@@ -260,7 +260,7 @@ build_request <- function(
   }
   if (body_format == "raw" && !is.null(body)) {
     # Verbatim: no req_body_json, no NULL-pruning, no pretty-printing, no
-    # re-encoding. The caller owns serialization; a body-signing venue's `sign`
+    # re-encoding. The caller owns serialisation; a body-signing venue's `sign`
     # can then read the exact bytes off `req$body$data` below.
     req <- httr2::req_body_raw(req, body, type = raw_content_type)
   }

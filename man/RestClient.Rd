@@ -106,7 +106,7 @@ server-time response. Default \code{"serverTime"}.}
 
 \item{\code{body_format}}{(scalar<character in c("json", "query", "none", "raw")>)
 default request-body encoding for every call; \code{"raw"} sends a
-pre-serialized body byte-verbatim (for venues that sign the exact body
+pre-serialised body byte-verbatim (for venues that sign the exact body
 bytes). A single \code{.request()} may override it. Default \code{"json"}.}
 
 \item{\code{user_agent}}{(scalar<character>) the \code{User-Agent} header. Default
