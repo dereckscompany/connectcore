@@ -24,12 +24,14 @@ mock_response(
 }
 \description{
 The single response constructor every mocked route resolves to. It accepts
-fixture data in three shapes, mirroring how connectors capture fixtures:
+fixture data in three shapes, mirroring how connectors organise their
+authored synthetic fixture files (never live captures; fleet rule ratified
+2026-07-05):
 \itemize{
 \item an already-built \code{httr2_response} is returned \strong{unchanged} (the pass-through
 path -- e.g. a 204 no-content or a hand-built error response);
 \item a single character string is used \strong{verbatim} as the body (the
-real-captured-JSON path -- a fixture file read in as one string);
+authored-fixture-JSON path -- a fixture file read in as one string);
 \item anything else is JSON-encoded with \code{\link[jsonlite:fromJSON]{jsonlite::toJSON()}}
 (\verb{auto_unbox = TRUE, null = "null", digits = NA}), matching the live wire.
 }

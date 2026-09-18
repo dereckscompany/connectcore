@@ -119,7 +119,7 @@ reconnect storm can never trip a server’s connection rate limit:
 
 ``` r
 vapply(1:5, function(attempt) ws_backoff_delay(attempt, cap_seconds = 60), numeric(1))
-#> [1] 2 2 3 5 6
+#> [1]  1  1  7  2 32
 ```
 
 ## Testing your connector
@@ -167,9 +167,10 @@ expresses a stateful route (paginate: page 1, then an empty page); and a
 fixture may return a fully-built `httr2_response` (a 204 no-content, an
 error), which is passed through unchanged. `mock_response()` builds a
 response from a list (JSON-encoded), a verbatim JSON string, or an
-existing response; `load_fixtures(dir)` reads a directory of real
-captured `*.json` into a named route table; and `local_mock_api()` is
-the `withr::local_*` companion for use inside a `test_that()` block.
+existing response; `load_fixtures(dir)` reads a directory of authored
+synthetic fixture files (never live captures; fleet rule ratified
+2026-07-05) into a named route table; and `local_mock_api()` is the
+`withr::local_*` companion for use inside a `test_that()` block.
 
 ## License
 

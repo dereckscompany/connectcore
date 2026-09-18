@@ -159,9 +159,9 @@ stateful route (paginate: page 1, then an empty page); and a fixture may return 
 fully-built `httr2_response` (a 204 no-content, an error), which is passed through
 unchanged. `mock_response()` builds a response from a list (JSON-encoded), a
 verbatim JSON string, or an existing response; `load_fixtures(dir)` reads a
-directory of real captured `*.json` into a named route table; and
-`local_mock_api()` is the `withr::local_*` companion for use inside a
-`test_that()` block.
+directory of authored synthetic fixture files (never live captures; fleet rule
+ratified 2026-07-05) into a named route table; and `local_mock_api()` is the
+`withr::local_*` companion for use inside a `test_that()` block.
 
 ## License
 

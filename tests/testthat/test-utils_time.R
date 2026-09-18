@@ -43,18 +43,19 @@ test_that("time conversions enforce their contracts", {
 # contract is length-preserving, NA-in -> NA-out, POSIXct/UTC out.
 
 test_that("ms_to_datetime converts a numeric vector to POSIXct (UTC)", {
-  # 1729159459033 ms = 2024-10-17T10:04:19.033 UTC
-  out <- ms_to_datetime(c(1729159459033, 1700000000000))
+  # 1767571200000 ms = 2026-01-05T00:00:00.000 UTC (a fictional instant on a
+  # clean grid, not tied to any real capture)
+  out <- ms_to_datetime(c(1767571200000, 1700000000000))
   expect_s3_class(out, "POSIXct")
   expect_identical(attr(out, "tzone"), "UTC")
   expect_length(out, 2L)
-  expect_equal(as.numeric(out), c(1729159459.033, 1700000000), tolerance = 1e-3)
+  expect_equal(as.numeric(out), c(1767571200.000, 1700000000), tolerance = 1e-3)
 })
 
 test_that("ms_to_datetime accepts numeric-as-character timestamps", {
-  out <- ms_to_datetime(c("1729159459033", "1700000000000"))
+  out <- ms_to_datetime(c("1767571200000", "1700000000000"))
   expect_s3_class(out, "POSIXct")
-  expect_equal(as.numeric(out), c(1729159459.033, 1700000000), tolerance = 1e-3)
+  expect_equal(as.numeric(out), c(1767571200.000, 1700000000), tolerance = 1e-3)
 })
 
 test_that("ms_to_datetime returns a same-length all-NA POSIXct for all-NA input", {
@@ -68,7 +69,7 @@ test_that("ms_to_datetime returns a same-length all-NA POSIXct for all-NA input"
 })
 
 test_that("ms_to_datetime preserves NA positions within a mixed vector", {
-  out <- ms_to_datetime(c(1700000000000, NA, 1729159459033))
+  out <- ms_to_datetime(c(1700000000000, NA, 1767571200000))
   expect_s3_class(out, "POSIXct")
   expect_length(out, 3L)
   expect_false(is.na(out[1]))
@@ -90,9 +91,9 @@ test_that("ms_to_datetime returns a scalar NA POSIXct for NULL/NA", {
 })
 
 test_that("ms_to_datetime handles fractional and edge millisecond values", {
-  out <- ms_to_datetime(c(0, 1729159459033.5))
+  out <- ms_to_datetime(c(0, 1767571200033.5))
   expect_s3_class(out, "POSIXct")
-  expect_equal(as.numeric(out), c(0, 1729159459.0335), tolerance = 1e-3)
+  expect_equal(as.numeric(out), c(0, 1767571200.0335), tolerance = 1e-3)
 })
 
 test_that("ms_to_datetime is silent on all-NA character input", {
