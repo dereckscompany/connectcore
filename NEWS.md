@@ -1,3 +1,10 @@
+# connectcore 0.5.2
+
+**NEWS.md was missing its entire entry for the released v0.4.0 tag, because a three-way stacked-PR merge had folded that release's changes into the text of the following 0.5.0 entry.** The v0.4.0 tag shipped typed transport conditions, typed WebSocket lifecycle events, and a durable pkgdown build policy as one cascade-merged release, but the NEWS heading for that version was never written, so all three changes read as if they had shipped under 0.5.0 alongside the unrelated retry work. This reconstructs the missing 0.4.0 section from the three merged pull requests (#9, #10, #11) and leaves only the retry change under 0.5.0.
+
+- `NEWS.md`: added the missing `# connectcore 0.4.0` heading between the 0.5.0 and 0.3.0 entries, moved the typed-conditions, WebSocket lifecycle-event, and pkgdown-build content there in the file's two-level form, and trimmed the 0.5.0 entry down to the retry change it actually shipped.
+- Ran `pkgdown::check_pkgdown()` to confirm the site configuration is still sound after the NEWS reshuffle.
+
 # connectcore 0.5.1
 
 **A test fixture used a real captured timestamp instead of a made-up one, and the mock-harness documentation overstated where fixtures come from.** In plain English: a test for the shared `ms_to_datetime()` helper hard-coded `1729159459033`, which is not an arbitrary number — it is the exact millisecond instant (2024-10-17T10:04:19.033 UTC) that also appears as a capture timestamp in the kucoin package's fixtures, meaning a test value and a real recorded moment were the same number. Separately, the roxygen docs for `mock_response()` and `load_fixtures()`, and a line in the README, described fixtures as "real captured" JSON — every fixture in this fleet is authored synthetic data, never a live capture, and the wording was simply wrong.
@@ -16,6 +23,9 @@ Request retry is now gated on **idempotency**, so opting into `max_tries > 1` ca
 * **Broadened transient set** — an auto-retried request now treats `408`, `429`, and any `5xx` as transient (previously httr2's default `429`/`503` only), and retries a connection-level failure (`retry_on_failure = TRUE`) — always safe to re-send for an idempotent request. `Retry-After` is honoured by httr2's default backoff. This makes the documented backfill contract ("retry on a timeout, a dropped connection, a 5xx, or a 429") actually true.
 * **Backward compatible** — the default `max_tries = 1` still disables retry, and no existing error *message* changes. The only behavioural change lands on callers that already opted into `max_tries > 1` (e.g. `binance_backfill_klines()`, an idempotent GET): its retries now also cover `408`/`5xx`/connection failures, matching its own documentation.
 
+# connectcore 0.4.0
+
+**Three stacked pull requests landed together as this release: every transport failure now signals a typed condition instead of a bare message, a WebSocket client gained the same typed lifecycle surface, and the pkgdown documentation build gained a lockfile policy that will not quietly drop its own build tools.**
 
 Typed conditions on every transport failure, so a caller branches on error type and reads structured fields instead of grepping the message string. When a REST call fails, the transport base used to throw a bare message with the HTTP status buried in the text; a caller who wanted to retry on 429 or re-auth on 401 had to regex the string, and there was no way to catch one failure class without catching all of them. `connectcore` is the base every connector extends, so a condition raised here is inherited fleet-wide — one place to fix.
 
