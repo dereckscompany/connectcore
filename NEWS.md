@@ -1,3 +1,12 @@
+# connectcore 0.5.3
+
+**A prose sweep dropped a labelled documentation convention connectcore was the last package still carrying, and switched ten American spellings to British ones.** The README's "In plain terms:" lead paragraph was added deliberately nine weeks ago under the two-level documentation convention (commit 1be0696); every other connector's README has since converged on an unlabelled plain-English lead followed by "## Technical overview", so this brings connectcore in line with the rest of the fleet. NEWS.md's own 0.5.1 entry carried the matching "In plain English:" label, removed the same way. In both cases the sentence that followed the label is kept exactly as written; only the label itself is gone. Separately, a handful of words in the roxygen documentation, the README, the NEWS history, a CI workflow comment and in-body code comments were spelled the American way ("pre-serialized", "serialization", "color") or used the American section heading ("License"); these now read "pre-serialised", "serialisation", "colour" and "Licence", matching the rest of the fleet. No identifiers, argument names, URLs, or file names changed.
+
+* 2 scaffolding labels removed: `README.Rmd` ("In plain terms:") and `NEWS.md` ("In plain English:").
+* 10 spelling changes: `pre-serialized` -> `pre-serialised` (5 occurrences, in `R/RestClient.R`, `R/helpers_request.R` x2, `README.Rmd`, `NEWS.md`), `serialization` -> `serialisation` (3 occurrences, in `R/helpers_request.R` x2, `NEWS.md`), `color` -> `colour` (1 occurrence, in `.github/workflows/test-coverage.yaml`), and the `README.Rmd` "License" heading -> "Licence".
+* Files touched: `DESCRIPTION`, `NEWS.md`, `R/RestClient.R`, `R/helpers_request.R`, `README.Rmd`, `README.md` (regenerated), `man/RestClient.Rd`, `man/build_request.Rd` (regenerated) and `.github/workflows/test-coverage.yaml` — 9 files.
+* Remaining American-looking spellings in scope are deliberate exclusions, not misses: R6 `initialize`/`super$initialize()` method identifiers, the `serialize = FALSE` argument name in `R/auth.R`, the `fig.align = "center"` knitr chunk-option value, and quoted vendor fields, test fixtures, URLs and file names are not prose; the `artifacts` hits in `scripts/BUILD.sh` and `scripts/CLEANUP.sh` are template-managed (cookiecutter, pinned in `.cruft.json`) and are never edited inside a package.
+
 # connectcore 0.5.2
 
 **NEWS.md was missing its entire entry for the released v0.4.0 tag, because a three-way stacked-PR merge had folded that release's changes into the text of the following 0.5.0 entry.** The v0.4.0 tag shipped typed transport conditions, typed WebSocket lifecycle events, and a durable pkgdown build policy as one cascade-merged release, but the NEWS heading for that version was never written, so all three changes read as if they had shipped under 0.5.0 alongside the unrelated retry work. This reconstructs the missing 0.4.0 section from the three merged pull requests (#9, #10, #11) and leaves only the retry change under 0.5.0.
@@ -7,7 +16,7 @@
 
 # connectcore 0.5.1
 
-**A test fixture used a real captured timestamp instead of a made-up one, and the mock-harness documentation overstated where fixtures come from.** In plain English: a test for the shared `ms_to_datetime()` helper hard-coded `1729159459033`, which is not an arbitrary number — it is the exact millisecond instant (2024-10-17T10:04:19.033 UTC) that also appears as a capture timestamp in the kucoin package's fixtures, meaning a test value and a real recorded moment were the same number. Separately, the roxygen docs for `mock_response()` and `load_fixtures()`, and a line in the README, described fixtures as "real captured" JSON — every fixture in this fleet is authored synthetic data, never a live capture, and the wording was simply wrong.
+**A test fixture used a real captured timestamp instead of a made-up one, and the mock-harness documentation overstated where fixtures come from.** A test for the shared `ms_to_datetime()` helper hard-coded `1729159459033`, which is not an arbitrary number — it is the exact millisecond instant (2024-10-17T10:04:19.033 UTC) that also appears as a capture timestamp in the kucoin package's fixtures, meaning a test value and a real recorded moment were the same number. Separately, the roxygen docs for `mock_response()` and `load_fixtures()`, and a line in the README, described fixtures as "real captured" JSON — every fixture in this fleet is authored synthetic data, never a live capture, and the wording was simply wrong.
 
 - `tests/testthat/test-utils_time.R`: replaced `1729159459033` (and its derived seconds/fractional forms) with `1767571200000` (2026-01-05T00:00:00.000 UTC), a fictional instant on a clean grid, across all four affected `test_that()` blocks.
 - `R/mock.R`: reworded the `mock_response()` and `load_fixtures()` roxygen text from "real captured"/"a connector's captured fixtures" to "authored synthetic fixture files (never live captures; fleet rule ratified 2026-07-05)".
@@ -120,10 +129,10 @@ them surfaced all three. Nothing existing changes behaviour — these only add n
 capability or fix an encoding that silently regressed. The connector adoptions
 themselves are separate follow-up PRs.
 
-* **`body_format = "raw"`** — a new body encoding that sends a pre-serialized
+* **`body_format = "raw"`** — a new body encoding that sends a pre-serialised
   `character` (or `raw`) body **byte-verbatim** via `httr2::req_body_raw()`: no
   `NULL`-pruning, no pretty-printing, no re-encoding. The caller owns
-  serialization. Required by venues that cryptographically sign the *exact bytes*
+  serialisation. Required by venues that cryptographically sign the *exact bytes*
   of the request body — kucoin (signs the **compact** JSON body, which
   pretty-printing would corrupt) and hyperliquid (signs the body and needs `null`
   fields **preserved**, which `req_body_json` drops). The `sign` seam runs

@@ -60,7 +60,7 @@ RestClient <- R6::R6Class(
     #'   server-time response. Default `"serverTime"`.
     #' @param body_format (scalar<character in c("json", "query", "none", "raw")>)
     #'   default request-body encoding for every call; `"raw"` sends a
-    #'   pre-serialized body byte-verbatim (for venues that sign the exact body
+    #'   pre-serialised body byte-verbatim (for venues that sign the exact body
     #'   bytes). A single `.request()` may override it. Default `"json"`.
     #' @param user_agent (scalar<character>) the `User-Agent` header. Default
     #'   `"dereckscompany/connectcore"`.

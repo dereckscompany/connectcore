@@ -38,7 +38,7 @@ vector-valued entry repeats its key (\code{.multi = "explode"}), e.g.
 \code{ids = c("A", "B")} becomes \code{ids=A&ids=B}.}
 
 \item{body}{(list | scalar<character> | raw | NULL) request body. For
-\code{body_format = "raw"} it is a pre-serialized scalar \code{character} (or \code{raw})
+\code{body_format = "raw"} it is a pre-serialised scalar \code{character} (or \code{raw})
 sent verbatim; otherwise a \code{list} whose \code{NULL} entries are dropped. Default
 \code{NULL}.}
 
@@ -54,7 +54,7 @@ raising on error. Default \code{\link[=parse_json_response]{parse_json_response(
 \code{body} is encoded: a pretty-printed JSON body (\code{NULL} fields pruned), merged
 into the query string (some signed APIs), ignored, or — for \code{"raw"} — sent
 byte-verbatim via \code{\link[httr2:req_body]{httr2::req_body_raw()}} with no pruning, pretty-printing,
-or re-encoding (the caller owns serialization; required by venues that sign
+or re-encoding (the caller owns serialisation; required by venues that sign
 the exact body bytes). Default \code{"json"}.}
 
 \item{raw_content_type}{(scalar<character>) the \code{Content-Type} for a \code{"raw"}
