@@ -5,19 +5,21 @@
 
 <!-- badges: end -->
 
-Every package in this project that talks to an outside service — a
+**Every package in this project that talks to an outside service — a
 crypto exchange, a market-data feed, a ship-tracking stream — has to do
 the same unglamorous plumbing: open a connection, send requests, wait
 for replies, retry when the network hiccups, hold a live socket open and
 notice when it quietly dies, and tidy the raw responses into a
-consistent shape. This package is that plumbing, written once and
-shared, so each new connector inherits it instead of rebuilding it. It
-deliberately knows nothing about prices, orders or ships — only about
-moving bytes reliably — which is what lets every connector built on top
-of it stay small and consistent. Think of it as the standard chassis all
-of our data connectors sit on. Its real value is that the hard lessons
-from building the earlier connectors are already baked in, so the next
-one starts ahead.
+consistent shape.**
+
+This package is that plumbing, written once and shared, so each new
+connector inherits it instead of rebuilding it. It deliberately knows
+nothing about prices, orders or ships — only about moving bytes reliably
+— which is what lets every connector built on top of it stay small and
+consistent. Think of it as the standard chassis all of our data
+connectors sit on. Its real value is that the hard lessons from building
+the earlier connectors are already baked in, so the next one starts
+ahead.
 
 ## Technical overview
 
@@ -29,7 +31,7 @@ genuinely source-specific; everything else is inherited.
 It is mostly a place to put what building a stack of these connectors
 taught us, so the next one starts with the lessons already baked in.
 
-## What we learned
+## Design philosophy
 
 - **One codebase for sync and async — not two.** Route every result
   through a single branch point (`then_or_now()`), write methods
@@ -72,6 +74,8 @@ into the project library:
 
 ``` r
 renv::install("dereckscompany/connectcore")
+
+# remotes::install_github("dereckscompany/connectcore")
 ```
 
 ## Extending the REST base
@@ -119,7 +123,7 @@ reconnect storm can never trip a server’s connection rate limit:
 
 ``` r
 vapply(1:5, function(attempt) ws_backoff_delay(attempt, cap_seconds = 60), numeric(1))
-#> [1] 1 2 4 9 7
+#> [1] 2 2 5 2 3
 ```
 
 ## Testing your connector
@@ -171,6 +175,25 @@ existing response; `load_fixtures(dir)` reads a directory of authored
 synthetic fixture files (never live captures; fleet rule ratified
 2026-07-05) into a named route table; and `local_mock_api()` is the
 `withr::local_*` companion for use inside a `test_that()` block.
+
+## Documentation
+
+The rendered reference site is at
+<https://dereckscompany.github.io/connectcore>.
+
+The vignette ladder, in reading order:
+
+- `vignette("connectcore", package = "connectcore")`: extends
+  `RestClient` and `StreamClient` with a worked subclass each, and shows
+  the exported coercion and time helpers used standalone.
+
+Release history is in [`NEWS.md`](NEWS.md).
+
+## Citation
+
+Cite as: Mezquita, D. (2026). Reusable Base for REST and WebSocket
+Data-Source Connectors. R package version 0.5.4.
+<https://github.com/dereckscompany/connectcore>
 
 ## Licence
 
