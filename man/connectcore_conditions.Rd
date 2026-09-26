@@ -17,6 +17,7 @@ parents are unchanged, so nothing that matched on message text before breaks.
    \code{\link[=abort_api_error]{abort_api_error()}} \tab \verb{connectcore_api_error_<status>} \tab \code{status}, \code{url}, \code{body_snippet} \tab non-2xx HTTP status \cr
    \code{\link[=abort_response_error]{abort_response_error()}} \tab \code{connectcore_response_error} \tab \code{field}, \code{url}, \code{body_snippet} \tab malformed body \cr
    \code{\link[=abort_stream_error]{abort_stream_error()}} \tab \code{connectcore_stream_error} \tab \code{url} \tab \code{StreamClient} transport failure \cr
+   \code{\link[=abort_mock_error]{abort_mock_error()}} \tab \code{connectcore_mock_error} \tab \code{method}, \code{url} \tab test mock router has no route for the request \cr
 }
 
 
@@ -100,5 +101,5 @@ it inherits \code{\link[=abort_api_error]{abort_api_error()}} through \code{\lin
 }
 }
 \seealso{
-\code{\link[=abort_api_error]{abort_api_error()}}, \code{\link[=abort_response_error]{abort_response_error()}}, \code{\link[=abort_stream_error]{abort_stream_error()}}
+\code{\link[=abort_api_error]{abort_api_error()}}, \code{\link[=abort_response_error]{abort_response_error()}}, \code{\link[=abort_stream_error]{abort_stream_error()}}, \code{\link[=abort_mock_error]{abort_mock_error()}}
 }

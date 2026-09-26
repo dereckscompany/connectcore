@@ -198,7 +198,7 @@ mock_router <- function(routes, response_builder = mock_response) {
       }
       return(response_builder(value))
     }
-    stop("Unmocked request: ", req$method, " ", req$url, call. = FALSE)
+    return(abort_mock_error(method = req$method, url = req$url))
   }
   return(dispatch)
 }
