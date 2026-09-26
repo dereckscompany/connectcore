@@ -56,6 +56,10 @@ test_that("the connectcore_error root catches api, response, and stream errors a
     tryCatch(abort_stream_error("boom"), connectcore_error = function(e) "root"),
     "root"
   )
+  expect_identical(
+    tryCatch(abort_mock_error(method = "GET", url = "https://x"), connectcore_error = function(e) "root"),
+    "root"
+  )
 })
 
 # ---- Structured fields (read them, don't grep the message) ----
@@ -93,6 +97,18 @@ test_that("stream-error carries a scrubbed url and class", {
   expect_s3_class(err, "connectcore_stream_error")
   expect_match(err$url, "token=<redacted>")
   expect_false(grepl("SECRET", err$url))
+})
+
+test_that("mock-error carries method, url and class, with the legacy message", {
+  err <- tryCatch(
+    abort_mock_error(method = "GET", url = "https://api.test/unknown"),
+    error = function(e) e
+  )
+  expect_s3_class(err, "connectcore_mock_error")
+  expect_s3_class(err, "connectcore_error")
+  expect_identical(conditionMessage(err), "Unmocked request: GET https://api.test/unknown")
+  expect_identical(err$method, "GET")
+  expect_identical(err$url, "https://api.test/unknown")
 })
 
 # ---- Credential scrubbing (pinned) ----

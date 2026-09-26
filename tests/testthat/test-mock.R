@@ -59,13 +59,19 @@ test_that("mock_router dispatches by URL substring, in order", {
   expect_identical(httr2::resp_body_json(resp2)$products, "all")
 })
 
-test_that("mock_router raises 'Unmocked request' with method and url", {
+test_that("mock_router raises a classed 'Unmocked request' error with method and url", {
   router <- mock_router(url_routes)
   req <- httr2::req_method(httr2::request("https://api.test/unknown"), "GET")
   expect_error(
     router(req),
-    "Unmocked request: GET https://api.test/unknown"
+    "Unmocked request: GET https://api.test/unknown",
+    class = "connectcore_mock_error"
   )
+  err <- tryCatch(router(req), error = function(e) e)
+  expect_s3_class(err, "connectcore_mock_error")
+  expect_s3_class(err, "connectcore_error")
+  expect_identical(err$method, "GET")
+  expect_identical(err$url, "https://api.test/unknown")
 })
 
 test_that("mock_router routes by the method discriminator", {
@@ -180,9 +186,9 @@ test_that("body_routes dispatches /exchange writes by body$action$type (hyperliq
   expect_identical(httr2::resp_body_json(hl_router(req))$status, "ok")
 })
 
-test_that("body_routes raises 'Unmocked request' for an unknown body type", {
+test_that("body_routes raises a classed 'Unmocked request' error for an unknown body type", {
   req <- httr2::req_body_json(httr2::request("https://api.hyperliquid.xyz/info"), list(type = "nope"))
-  expect_error(hl_router(req), "Unmocked request")
+  expect_error(hl_router(req), "Unmocked request", class = "connectcore_mock_error")
 })
 
 # ---- with_mock_api / local_mock_api: the SYNC + ASYNC proof ----

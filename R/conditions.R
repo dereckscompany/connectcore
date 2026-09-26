@@ -27,6 +27,7 @@
 #' | [abort_api_error()] | `connectcore_api_error_<status>` | `status`, `url`, `body_snippet` | non-2xx HTTP status |
 #' | [abort_response_error()] | `connectcore_response_error` | `field`, `url`, `body_snippet` | malformed body |
 #' | [abort_stream_error()] | `connectcore_stream_error` | `url` | `StreamClient` transport failure |
+#' | [abort_mock_error()] | `connectcore_mock_error` | `method`, `url` | test mock router has no route for the request |
 #'
 #' The response-body field is `body_snippet` (not `body`) because `rlang::abort()`
 #' reserves `body` for its own message formatting; a field named `body` would be
@@ -106,7 +107,7 @@
 #' For a connector that keeps the default HTTP-status envelope, no work is needed:
 #' it inherits [abort_api_error()] through [parse_json_response()] for free.
 #'
-#' @seealso [abort_api_error()], [abort_response_error()], [abort_stream_error()]
+#' @seealso [abort_api_error()], [abort_response_error()], [abort_stream_error()], [abort_mock_error()]
 #' @name connectcore_conditions
 NULL
 
@@ -310,6 +311,41 @@ abort_stream_error <- function(message, url = NULL) {
     message = message,
     class = c("connectcore_stream_error", "connectcore_error"),
     url = scrub_url(url),
+    call = rlang::caller_env()
+  ))
+}
+
+#' Raise a typed mock-router error
+#'
+#' Signals a condition classed `c("connectcore_mock_error", "connectcore_error")`
+#' for a request the test mock router's route table has no fixture for (see
+#' [mock_router()]). Carries the unmatched request's `method` and `url` as
+#' structured fields. The message defaults to the byte-identical
+#' `"Unmocked request: <method> <url>"` the mock router signalled with a bare
+#' `stop()` before typed conditions existed, so nothing that matched on message
+#' text breaks. See [connectcore_conditions] for the taxonomy.
+#'
+#' @param method (scalar<character> | NULL) the unmatched request's HTTP method.
+#'   Default `NULL`.
+#' @param url (scalar<character> | NULL) the unmatched request's URL; NOT
+#'   redacted (mock routes carry no live credentials). Default `NULL`.
+#' @param message (scalar<character> | NULL) the condition message. `NULL`
+#'   (default) derives the byte-identical legacy string from `method` and `url`.
+#' @return (class<connectcore_error>) never returns normally; signals the classed
+#'   condition described above.
+#' @importFrom rlang abort caller_env
+#' @seealso [connectcore_conditions]
+#' @noassert
+#' @export
+abort_mock_error <- function(method = NULL, url = NULL, message = NULL) {
+  if (is.null(message)) {
+    message <- paste0("Unmocked request: ", method, " ", url)
+  }
+  return(rlang::abort(
+    message = message,
+    class = c("connectcore_mock_error", "connectcore_error"),
+    method = method,
+    url = url,
     call = rlang::caller_env()
   ))
 }
