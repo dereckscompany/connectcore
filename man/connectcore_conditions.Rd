@@ -18,6 +18,7 @@ parents are unchanged, so nothing that matched on message text before breaks.
    \code{\link[=abort_response_error]{abort_response_error()}} \tab \code{connectcore_response_error} \tab \code{field}, \code{url}, \code{body_snippet} \tab malformed body \cr
    \code{\link[=abort_stream_error]{abort_stream_error()}} \tab \code{connectcore_stream_error} \tab \code{url} \tab \code{StreamClient} transport failure \cr
    \code{\link[=abort_mock_error]{abort_mock_error()}} \tab \code{connectcore_mock_error} \tab \code{method}, \code{url} \tab test mock router has no route for the request \cr
+   \code{\link[=abort_request_deadline]{abort_request_deadline()}} \tab \code{connectcore_request_deadline} \tab \code{method}, \code{host}, \code{path}, \code{elapsed} \tab deadline \cr
 }
 
 
@@ -60,7 +61,13 @@ transport failure (e.g. \verb{$send()} on a closed socket).
 
 \code{url} is stored with query-string credentials redacted (see \code{\link[=abort_api_error]{abort_api_error()}}),
 so logging \code{e$url} never leaks a secret; \code{e$body_snippet} is a truncated,
-log-safe slice of the response body.
+log-safe slice of the response body. That guarantee covers the FIELDS this
+file documents individually, never the condition object as a whole: a
+caller must still log specific fields (\code{e$status}, \code{e$url}, ...), not
+serialise or \code{dput()} the whole condition, which can carry an unredacted
+\code{call} (e.g. the exact \code{build_request()} arguments, including credentials
+passed as \code{keys}) or a \code{parent} condition from a lower layer that this
+package never scrubs.
 }
 
 \subsection{Recipe: a connector subclasses these}{
@@ -101,5 +108,6 @@ it inherits \code{\link[=abort_api_error]{abort_api_error()}} through \code{\lin
 }
 }
 \seealso{
-\code{\link[=abort_api_error]{abort_api_error()}}, \code{\link[=abort_response_error]{abort_response_error()}}, \code{\link[=abort_stream_error]{abort_stream_error()}}, \code{\link[=abort_mock_error]{abort_mock_error()}}
+\code{\link[=abort_api_error]{abort_api_error()}}, \code{\link[=abort_response_error]{abort_response_error()}}, \code{\link[=abort_stream_error]{abort_stream_error()}},
+\code{\link[=abort_mock_error]{abort_mock_error()}}, \code{\link[=abort_request_deadline]{abort_request_deadline()}}
 }

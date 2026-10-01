@@ -1,6 +1,6 @@
 Package: connectcore
 Title: Reusable Base for REST and WebSocket Data-Source Connectors
-Version: 0.5.5
+Version: 0.6.0
 URL: https://dereckscompany.github.io/connectcore,
     https://github.com/dereckscompany/connectcore
 BugReports: https://github.com/dereckscompany/connectcore/issues
@@ -23,6 +23,7 @@ Imports:
     rlang,
     data.table,
     httr2 (>= 1.0.0),
+    curl,
     jsonlite,
     digest,
     lubridate,
@@ -35,6 +36,7 @@ Imports:
     utils
 Suggests:
     box,
+    callr,
     covr,
     knitr,
     lintr,

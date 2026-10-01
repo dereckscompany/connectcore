@@ -324,3 +324,691 @@ test_that("a transient 500 on a GET is retried and then succeeds (max_tries = 3)
   expect_true(out$ok)
   expect_identical(n, 2L) # retried once on the 500, then succeeded
 })
+
+# ---- The request deadline: a stub server that never responds -------------------
+#
+# Issue #19 (2026-09-28 incident): a documented 10-second per-request timeout
+# did not stop a venue call from hanging for 600 seconds. `req_timeout()` is
+# reliable on the synchronous branch (plain curl); on the asynchronous branch
+# (`req_perform_promise()`) it is not, because of a suspected unit-mismatch bug
+# in httr2 1.2.2's own pool poller (milliseconds fed into a seconds-denominated
+# `later_fd()` wait -- see the file-header comment above `.perform_async_with_deadline()`
+# in R/helpers_request.R, and NEWS, for the full mechanism) -- confirmed below
+# against a real socket, never a mock, because httr2's mock seam never
+# exercises curl's own timeout machinery at all.
+#
+# NOTE: every test below that touches `build_request()` or httr2 directly
+# exercises the INSTALLED copy of this package (`library(connectcore)` inside
+# a fresh `callr` subprocess loads whatever is in `.libPaths()`, not this
+# source tree) -- after editing R/ code, reinstall (`R CMD INSTALL
+# --no-multiarch .`) before re-running this file, or these tests silently
+# exercise stale code.
+#
+# Every request against the stub server below runs in its OWN fresh subprocess
+# (`run_against_stub()`). This is not incidental test hygiene: httr2's async
+# branch shares ONE curl multi-handle for the whole R session, and an
+# abandoned (never-settled) promise from an earlier test leaves that shared
+# handle in a state that made the identical request against a brand-new,
+# confirmed-listening stub server intermittently raise a spurious "Could not
+# connect" within ~200ms when run later in the SAME session -- discovered
+# while developing this suite. A fresh subprocess per test sidesteps that
+# entirely; the subprocess's own `timeout` argument is also a second,
+# independent safety net against a genuine regression hanging the suite.
+
+testthat::skip_if_not_installed("callr")
+
+# Is `port` in LISTEN state, per the OS itself (not an application-level
+# signal)? Used to confirm the stub server below is actually bound and ready
+# to accept BEFORE a test connects to it, without consuming the server's
+# single accept() the way a connect-then-close probe would, and without
+# guessing at R subprocess startup timing the way a fixed sleep would. `lsof`
+# is near-universal on macOS/Linux dev and CI images; where it is genuinely
+# absent, `.stub_server_is_listening()` falls back to a short fixed sleep
+# (less robust, but no worse than this suite's behaviour before this check
+# existed).
+.stub_server_is_listening <- function(port) {
+  if (nzchar(Sys.which("lsof"))) {
+    out <- tryCatch(
+      system2("lsof", c(sprintf("-iTCP:%d", port), "-sTCP:LISTEN", "-t"), stdout = TRUE, stderr = FALSE),
+      error = function(e) character(0),
+      warning = function(w) character(0)
+    )
+    return(length(out) > 0 && nzchar(out[1]))
+  }
+  Sys.sleep(0.5)
+  return(TRUE)
+}
+
+# A minimal TCP stub server, run in a background process. Except for
+# "responsive_loop", it accepts exactly ONE connection (socketConnection(server
+# = TRUE) performs the accept() at open time), then either:
+#  - "silent": never reads or writes anything (holds the connection open),
+#  - "late": sleeps `delay` seconds, then writes one minimal valid HTTP/1.1
+#    response and closes,
+#  - "responsive": answers immediately with a minimal valid HTTP/1.1 response, or
+#  - "responsive_loop": answers immediately, closes, and goes back to accept
+#    the NEXT connection, indefinitely -- for a test that issues many
+#    sequential requests against one server (never concurrent: each one is
+#    awaited to settlement before the next is issued).
+.start_stub_server <- function(mode = c("silent", "late", "responsive", "responsive_loop"), delay = 0) {
+  mode <- match.arg(mode)
+  port <- sample(20000:40000, 1)
+  proc <- callr::r_bg(
+    func = function(port, mode, delay) {
+      respond_once <- function() {
+        con <- socketConnection(host = "0.0.0.0", port = port, server = TRUE, blocking = TRUE, open = "r+b")
+        if (mode %in% c("late", "responsive", "responsive_loop")) {
+          Sys.sleep(delay)
+          body <- "{}"
+          resp <- paste0(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ",
+            nchar(body),
+            "\r\nConnection: close\r\n\r\n",
+            body
+          )
+          tryCatch(
+            {
+              writeChar(resp, con, eos = NULL)
+              flush(con)
+            },
+            error = function(e) NULL
+          )
+        } else {
+          Sys.sleep(60) # "silent": accept the connection, never say a word
+        }
+        return(close(con))
+      }
+      if (identical(mode, "responsive_loop")) {
+        return(
+          repeat {
+            respond_once()
+          }
+        )
+      }
+      return(respond_once())
+    },
+    args = list(port = port, mode = mode, delay = delay),
+    user_profile = FALSE, # skip this project's renv/.Rprofile -- the stub needs only base R
+    stdout = "|",
+    stderr = "|"
+  )
+  ready_deadline <- lubridate::now("UTC") + lubridate::dseconds(5)
+  ready <- FALSE
+  while (!ready && lubridate::now("UTC") < ready_deadline) {
+    if (.stub_server_is_listening(port)) {
+      ready <- TRUE
+    } else {
+      Sys.sleep(0.02)
+    }
+  }
+  if (!ready) {
+    try(proc$kill(), silent = TRUE)
+    stop("stub server did not report ready within 5s")
+  }
+  return(list(port = port, proc = proc))
+}
+
+# Start a stub server and arrange for it to be killed when the calling test
+# (or its enclosing context) exits, following the package's withr::local_*
+# convention for test-scoped resources.
+local_stub_server <- function(mode = c("silent", "late"), delay = 0, env = parent.frame()) {
+  srv <- .start_stub_server(mode = mode, delay = delay)
+  withr::defer(try(srv$proc$kill(), silent = TRUE), envir = env)
+  return(srv$port)
+}
+
+# Run `fn(...)` in a fresh subprocess against one or more stub servers (see the
+# file-header note on why isolation matters here); `...` is forwarded to `fn`
+# by name (almost always just `port = <port>`, occasionally more than one
+# port). `timeout_secs` bounds the subprocess itself, independent of whatever
+# wall-clock bound `fn` applies internally.
+run_against_stub <- function(fn, ..., timeout_secs = 15) {
+  return(tryCatch(
+    callr::r(fn, args = list(...), timeout = timeout_secs, libpath = .libPaths(), user_profile = FALSE),
+    error = function(e) list(outcome = "subprocess_timeout", message = conditionMessage(e))
+  ))
+}
+
+test_that("FINDING: req_timeout() fires reliably on the sync branch against a stub that never responds", {
+  port <- local_stub_server(mode = "silent")
+  res <- run_against_stub(
+    function(port) {
+      library(httr2)
+      library(lubridate)
+      started <- lubridate::now("UTC")
+      err <- tryCatch(
+        httr2::req_perform(httr2::req_timeout(httr2::request(sprintf("http://127.0.0.1:%d/", port)), 1)),
+        error = function(e) e
+      )
+      return(list(
+        is_timeout = inherits(err, "httr2_failure") && inherits(err[["parent"]], "curl_error_operation_timedout"),
+        elapsed = lubridate::time_length(lubridate::interval(started, lubridate::now("UTC")), "seconds")
+      ))
+    },
+    port = port
+  )
+  expect_true(isTRUE(res$is_timeout))
+  expect_lt(res$elapsed, 5) # fires close to the 1s timeout, nowhere near 600s
+})
+
+test_that("FINDING: req_timeout() does NOT fire on the async branch against a stub that never responds", {
+  # This pins the production bug issue #19 is about: against a REAL socket
+  # that accepts the TCP connection and never writes a byte, the promise
+  # never settles at all -- timeout or no.
+  port <- local_stub_server(mode = "silent")
+  res <- run_against_stub(
+    function(port) {
+      library(httr2)
+      library(promises)
+      library(later)
+      library(lubridate)
+      req <- httr2::req_timeout(httr2::request(sprintf("http://127.0.0.1:%d/", port)), 1)
+      done <- FALSE
+      promises::then(
+        httr2::req_perform_promise(req),
+        onFulfilled = function(v) done <<- TRUE,
+        onRejected = function(e) done <<- TRUE
+      )
+      deadline <- lubridate::now("UTC") + lubridate::dseconds(5)
+      while (!done && lubridate::now("UTC") < deadline) {
+        later::run_now(timeoutSecs = 0.05)
+      }
+      return(list(settled = done))
+    },
+    port = port
+  )
+  expect_false(isTRUE(res$settled)) # never settled in 5s past a 1s timeout
+})
+
+test_that("sync: a stalled request raises connectcore_request_deadline, not the raw curl error", {
+  port <- local_stub_server(mode = "silent")
+  res <- run_against_stub(
+    function(port) {
+      library(connectcore)
+      err <- tryCatch(
+        build_request(
+          base_url = sprintf("http://127.0.0.1:%d", port),
+          endpoint = "/v1/orders",
+          method = "GET",
+          timeout = 1,
+          .perform = httr2::req_perform
+        ),
+        error = function(e) e
+      )
+      return(list(
+        classes = class(err),
+        method = err$method,
+        host = err$host,
+        path = err$path,
+        elapsed = err$elapsed
+      ))
+    },
+    port = port
+  )
+  expect_true("connectcore_request_deadline" %in% res$classes)
+  expect_true("connectcore_error" %in% res$classes)
+  expect_identical(res$method, "GET")
+  expect_identical(res$host, "127.0.0.1")
+  expect_identical(res$path, "/v1/orders")
+  expect_true(res$elapsed > 0 && res$elapsed < 5)
+})
+
+test_that("async: a stalled request raises connectcore_request_deadline via the outer deadline guard", {
+  port <- local_stub_server(mode = "silent")
+  res <- run_against_stub(
+    function(port) {
+      library(connectcore)
+      library(promises)
+      library(later)
+      library(lubridate)
+      out <- build_request(
+        base_url = sprintf("http://127.0.0.1:%d", port),
+        endpoint = "/v1/orders",
+        method = "GET",
+        timeout = 1,
+        deadline_margin = 0.5,
+        .perform = httr2::req_perform_promise,
+        is_async = TRUE
+      )
+      done <- FALSE
+      ok <- NA
+      err <- NULL
+      promises::then(
+        out,
+        onFulfilled = function(v) {
+          done <<- TRUE
+          return(ok <<- TRUE)
+        },
+        onRejected = function(e) {
+          done <<- TRUE
+          ok <<- FALSE
+          return(err <<- e)
+        }
+      )
+      deadline <- lubridate::now("UTC") + lubridate::dseconds(5)
+      while (!done && lubridate::now("UTC") < deadline) {
+        later::run_now(timeoutSecs = 0.05)
+      }
+      return(list(
+        done = done,
+        ok = ok,
+        classes = class(err),
+        method = err$method,
+        host = err$host,
+        path = err$path,
+        elapsed = err$elapsed
+      ))
+    },
+    port = port
+  )
+  expect_true(res$done)
+  expect_false(isTRUE(res$ok))
+  expect_true("connectcore_request_deadline" %in% res$classes)
+  expect_true("connectcore_error" %in% res$classes)
+  expect_identical(res$method, "GET")
+  expect_identical(res$host, "127.0.0.1")
+  expect_identical(res$path, "/v1/orders")
+  # Fires at ~ timeout + deadline_margin (1.5s), not at 600s and not never.
+  expect_true(res$elapsed > 1 && res$elapsed < 4)
+})
+
+test_that("async: a venue answering between timeout and timeout+margin raises the deadline, not a raw signed failure", {
+  # The edge a second review pass found: curl's OWN timeout CAN still fire on
+  # the pooled path (just not reliably), and when it does -- here, because the
+  # stub answers at 1.6s, after `timeout` (1s) but before the outer deadline
+  # at `timeout + deadline_margin` (3s) -- the unwrapped failure would have
+  # been httr2's raw `httr2_failure`, whose `request` field carries the signed
+  # headers and the signed URL. This proves it is reclassified instead.
+  port <- local_stub_server(mode = "late", delay = 1.6)
+  res <- run_against_stub(
+    function(port) {
+      library(connectcore)
+      library(promises)
+      library(later)
+      library(lubridate)
+      signer <- function(req, keys, ctx) {
+        return(httr2::req_headers(req, Authorization = paste0("Bearer ", keys$secret)))
+      }
+      out <- build_request(
+        base_url = sprintf("http://127.0.0.1:%d", port),
+        endpoint = "/v1/orders",
+        method = "GET",
+        query = list(signature = "TOP-SECRET-SIG"),
+        keys = list(secret = "SUPER-SECRET-TOKEN"),
+        sign = signer,
+        timeout = 1,
+        deadline_margin = 2,
+        .perform = httr2::req_perform_promise,
+        is_async = TRUE
+      )
+      done <- FALSE
+      ok <- NA
+      err <- NULL
+      promises::then(
+        out,
+        onFulfilled = function(v) {
+          done <<- TRUE
+          return(ok <<- TRUE)
+        },
+        onRejected = function(e) {
+          done <<- TRUE
+          ok <<- FALSE
+          return(err <<- e)
+        }
+      )
+      deadline <- lubridate::now("UTC") + lubridate::dseconds(6)
+      while (!done && lubridate::now("UTC") < deadline) {
+        later::run_now(timeoutSecs = 0.05)
+      }
+      return(list(
+        done = done,
+        ok = ok,
+        classes = class(err),
+        has_request_field = !is.null(err[["request"]]),
+        message = conditionMessage(err)
+      ))
+    },
+    port = port,
+    timeout_secs = 10
+  )
+  expect_true(res$done)
+  expect_false(isTRUE(res$ok))
+  expect_true("connectcore_request_deadline" %in% res$classes)
+  expect_true("connectcore_error" %in% res$classes)
+  expect_false(res$has_request_field) # never the raw httr2_failure's $request
+  expect_false(grepl("SUPER-SECRET-TOKEN", res$message, fixed = TRUE))
+  expect_false(grepl("TOP-SECRET-SIG", res$message, fixed = TRUE))
+})
+
+test_that("async: 100 fast successes leave no queued deadline timer and no leaked sockets", {
+  skip_on_os("windows") # the fd-count check below shells out to lsof
+  port <- local_stub_server(mode = "responsive_loop", delay = 0)
+  res <- run_against_stub(
+    function(port) {
+      library(connectcore)
+      library(promises)
+      library(later)
+      library(lubridate)
+      await_one <- function(promise, timeout_secs) {
+        done <- FALSE
+        promises::then(
+          promise,
+          onFulfilled = function(v) {
+            return(done <<- TRUE)
+          },
+          onRejected = function(e) {
+            return(done <<- TRUE)
+          }
+        )
+        deadline <- lubridate::now("UTC") + lubridate::dseconds(timeout_secs)
+        while (!done && lubridate::now("UTC") < deadline) {
+          later::run_now(timeoutSecs = 0.02)
+        }
+        return(done)
+      }
+      ok_count <- 0L
+      for (i in 1:100) {
+        out <- build_request(
+          base_url = sprintf("http://127.0.0.1:%d", port),
+          endpoint = "/v1/orders",
+          method = "GET",
+          .perform = httr2::req_perform_promise,
+          is_async = TRUE,
+          parse_envelope = identity
+        )
+        if (await_one(out, 5)) {
+          ok_count <- ok_count + 1L
+        }
+      }
+      invisible(gc())
+      extra_deadline <- lubridate::now("UTC") + lubridate::dseconds(1)
+      while (lubridate::now("UTC") < extra_deadline) {
+        later::run_now(timeoutSecs = 0.02)
+      }
+      invisible(gc())
+      fd_count <- length(system(
+        sprintf("lsof -p %d -a -i TCP 2>/dev/null | tail -n +2", Sys.getpid()),
+        intern = TRUE
+      ))
+      queue_len <- length(later:::list_queue())
+      return(list(ok_count = ok_count, fd_count = fd_count, queue_len = queue_len))
+    },
+    port = port,
+    timeout_secs = 30
+  )
+  expect_identical(res$ok_count, 100L)
+  expect_identical(res$queue_len, 0L) # the deadline timer was cancelled on every success, none queued
+  expect_identical(res$fd_count, 0L) # no open TCP socket left pinned by an uncancelled timer
+})
+
+test_that("the deadline condition never carries the query string (credential-safe)", {
+  port <- local_stub_server(mode = "silent")
+  res <- run_against_stub(
+    function(port) {
+      library(connectcore)
+      err <- tryCatch(
+        build_request(
+          base_url = sprintf("http://127.0.0.1:%d", port),
+          endpoint = "/v1/orders",
+          method = "GET",
+          query = list(signature = "TOP-SECRET-SIG", symbol = "BTC"),
+          timeout = 1,
+          .perform = httr2::req_perform
+        ),
+        error = function(e) e
+      )
+      return(list(
+        classes = class(err),
+        path = err$path,
+        message = conditionMessage(err)
+      ))
+    },
+    port = port
+  )
+  expect_true("connectcore_request_deadline" %in% res$classes)
+  expect_identical(res$path, "/v1/orders") # no "?", no query at all
+  expect_false(grepl("signature", res$path, fixed = TRUE))
+  expect_false(grepl("TOP-SECRET-SIG", res$path, fixed = TRUE))
+  expect_false(grepl("TOP-SECRET-SIG", res$message, fixed = TRUE))
+  expect_false(grepl("?", res$path, fixed = TRUE))
+})
+
+test_that("async: a real socket's late 200 never reaches the caller (integration; proof below is socket-free)", {
+  # This is an integration-level check only: over a real socket, a late 200
+  # never surfacing is also what plain unguarded req_perform_promise() would
+  # show once ITS OWN httr2-level timeout eventually fires (whenever that is)
+  # -- it cannot, by itself, tell our deadline/cancel mechanism apart from
+  # that. The test below this one isolates OUR mechanism specifically with a
+  # fully deterministic, socket-free mock that always SUCCEEDS, never errors,
+  # so there is no other explanation available for the parser never running.
+  port <- local_stub_server(mode = "late", delay = 3)
+  res <- run_against_stub(
+    function(port) {
+      library(connectcore)
+      library(promises)
+      library(later)
+      library(lubridate)
+      n_parsed <- 0L
+      out <- build_request(
+        base_url = sprintf("http://127.0.0.1:%d", port),
+        endpoint = "/v1/orders",
+        method = "GET",
+        timeout = 1,
+        deadline_margin = 0.5,
+        .perform = httr2::req_perform_promise,
+        is_async = TRUE,
+        .parser = function(x) {
+          n_parsed <<- n_parsed + 1L
+          return(x)
+        }
+      )
+      done <- FALSE
+      ok <- NA
+      err <- NULL
+      promises::then(
+        out,
+        onFulfilled = function(v) {
+          done <<- TRUE
+          return(ok <<- TRUE)
+        },
+        onRejected = function(e) {
+          done <<- TRUE
+          ok <<- FALSE
+          return(err <<- e)
+        }
+      )
+      first_deadline <- lubridate::now("UTC") + lubridate::dseconds(2) # well before the 3s late response
+      while (!done && lubridate::now("UTC") < first_deadline) {
+        later::run_now(timeoutSecs = 0.05)
+      }
+      # Keep pumping well past when the late response actually arrives, and
+      # confirm the parser is never invoked -- the real request promise's
+      # eventual fulfilment is abandoned, not delivered.
+      extra_deadline <- lubridate::now("UTC") + lubridate::dseconds(4)
+      while (lubridate::now("UTC") < extra_deadline) {
+        later::run_now(timeoutSecs = 0.05)
+      }
+      return(list(done = done, ok = ok, classes = class(err), n_parsed = n_parsed))
+    },
+    port = port
+  )
+  expect_true(res$done)
+  expect_false(isTRUE(res$ok))
+  expect_true("connectcore_request_deadline" %in% res$classes)
+  expect_identical(res$n_parsed, 0L)
+})
+
+test_that("async: a response that SUCCEEDS after the deadline is discarded, not delivered (socket-free proof)", {
+  # No socket, no curl, no network at all: `.perform` is a mock whose promise
+  # ALWAYS fulfils (never errors) via its own later() timer fired well after
+  # our deadline. Nothing but build_request()'s own race + discard can explain
+  # the parser never running here -- unlike the real-socket test above, there
+  # is no competing explanation (an independent httr2/curl timeout) available.
+  n_parsed <- 0L
+  late_resolved <- FALSE
+  mock_perform <- function(req, pool = NULL) {
+    return(promises::promise(function(resolve, reject) {
+      return(later::later(
+        function() {
+          late_resolved <<- TRUE
+          return(resolve("late-success"))
+        },
+        delay = 1 # well after the 0.3s deadline below
+      ))
+    }))
+  }
+  out <- build_request(
+    base_url = "http://example.test",
+    endpoint = "/v1/orders",
+    method = "GET",
+    timeout = 0.2,
+    deadline_margin = 0.1, # our deadline fires at ~0.3s
+    .perform = mock_perform,
+    is_async = TRUE,
+    parse_envelope = identity,
+    .parser = function(x) {
+      n_parsed <<- n_parsed + 1L
+      return(x)
+    }
+  )
+  done <- FALSE
+  ok <- NA
+  err <- NULL
+  promises::then(
+    out,
+    onFulfilled = function(v) {
+      done <<- TRUE
+      return(ok <<- TRUE)
+    },
+    onRejected = function(e) {
+      done <<- TRUE
+      ok <<- FALSE
+      return(err <<- e)
+    }
+  )
+  first_deadline <- lubridate::now("UTC") + lubridate::dseconds(2) # well before the mock's 1s success
+  while (!done && lubridate::now("UTC") < first_deadline) {
+    later::run_now(timeoutSecs = 0.02)
+  }
+  expect_true(done)
+  expect_false(isTRUE(ok))
+  expect_s3_class(err, "connectcore_request_deadline")
+
+  # Keep pumping past the mock's own 1s success, and confirm it never reaches
+  # the parser even though it DID eventually fire (proving this is a discard,
+  # not a race the mock just happened to lose on its own).
+  extra_deadline <- lubridate::now("UTC") + lubridate::dseconds(2)
+  while (lubridate::now("UTC") < extra_deadline) {
+    later::run_now(timeoutSecs = 0.02)
+  }
+  expect_true(late_resolved)
+  expect_identical(n_parsed, 0L)
+})
+
+test_that("FINDING 1 regression: one deadline does not poison later async requests in the same process", {
+  # Before the fix, build_request()'s async branch used httr2's shared DEFAULT
+  # curl pool; an abandoned handle left there parked that pool's poller for a
+  # suspected ~timeout*1000 seconds (httr2 1.2.2 ms/s bug -- see NEWS), so a
+  # SECOND, wholly unrelated async request on the SAME pool also never settled
+  # in any reasonable window, even against a server that answers immediately.
+  # This proves the fix: every async request gets its own pool, and the
+  # abandoned handle is actively cancelled on deadline, so nothing after it is
+  # affected.
+  stalled_port <- local_stub_server(mode = "silent")
+  fast_port <- local_stub_server(mode = "responsive", delay = 0)
+  res <- run_against_stub(
+    function(stalled_port, fast_port) {
+      library(connectcore)
+      library(promises)
+      library(later)
+      library(lubridate)
+
+      await_one <- function(promise, timeout_secs) {
+        done <- FALSE
+        ok <- NA
+        promises::then(
+          promise,
+          onFulfilled = function(v) {
+            done <<- TRUE
+            return(ok <<- TRUE)
+          },
+          onRejected = function(e) {
+            done <<- TRUE
+            ok <<- FALSE
+            return(invisible(NULL))
+          }
+        )
+        deadline <- lubridate::now("UTC") + lubridate::dseconds(timeout_secs)
+        while (!done && lubridate::now("UTC") < deadline) {
+          later::run_now(timeoutSecs = 0.02)
+        }
+        return(list(done = done, ok = ok))
+      }
+
+      # Step 1: a request against the silent stub deadlines (~0.3s).
+      stalled <- build_request(
+        base_url = sprintf("http://127.0.0.1:%d", stalled_port),
+        endpoint = "/v1/orders",
+        method = "GET",
+        timeout = 0.2,
+        deadline_margin = 0.1,
+        .perform = httr2::req_perform_promise,
+        is_async = TRUE
+      )
+      first <- await_one(stalled, timeout_secs = 3)
+
+      # Step 2: a SECOND, unrelated request to a FAST, responsive host, issued
+      # immediately after. If the fix works, this settles in well under 1s;
+      # on the pre-fix code this never settled within 10s (reproduced).
+      started_second <- lubridate::now("UTC")
+      fast <- build_request(
+        base_url = sprintf("http://127.0.0.1:%d", fast_port),
+        endpoint = "/v1/orders",
+        method = "GET",
+        .perform = httr2::req_perform_promise,
+        is_async = TRUE,
+        parse_envelope = identity
+      )
+      second <- await_one(fast, timeout_secs = 5)
+      second_elapsed <- lubridate::time_length(lubridate::interval(started_second, lubridate::now("UTC")), "seconds")
+
+      return(list(
+        first_done = first$done,
+        first_ok = first$ok,
+        second_done = second$done,
+        second_ok = second$ok,
+        second_elapsed = second_elapsed
+      ))
+    },
+    stalled_port = stalled_port,
+    fast_port = fast_port,
+    timeout_secs = 20
+  )
+  expect_true(res$first_done)
+  expect_false(isTRUE(res$first_ok)) # the silent stub's request deadlined
+  expect_true(res$second_done)
+  expect_true(isTRUE(res$second_ok))
+  expect_lt(res$second_elapsed, 1) # well under a second, not poisoned by the first
+})
+
+test_that("sync: a late response (after the deadline) still raises the deadline, not a stale success", {
+  port <- local_stub_server(mode = "late", delay = 3)
+  res <- run_against_stub(
+    function(port) {
+      library(connectcore)
+      err <- tryCatch(
+        build_request(
+          base_url = sprintf("http://127.0.0.1:%d", port),
+          endpoint = "/v1/orders",
+          method = "GET",
+          timeout = 1,
+          .perform = httr2::req_perform
+        ),
+        error = function(e) e
+      )
+      return(list(classes = class(err)))
+    },
+    port = port
+  )
+  expect_true("connectcore_request_deadline" %in% res$classes)
+})

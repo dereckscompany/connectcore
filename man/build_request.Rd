@@ -23,6 +23,7 @@ build_request(
   max_tries = 1L,
   idempotent = identical(toupper(method), "GET"),
   throttle_rate = NULL,
+  deadline_margin = 5,
   ctx = list()
 )
 }
@@ -62,7 +63,12 @@ body. Ignored unless \code{body_format = "raw"}. Default \code{"application/json
 
 \item{.perform}{(function) the httr2 perform function
 (\link[httr2:req_perform]{httr2::req_perform} or \link[httr2:req_perform_promise]{httr2::req_perform_promise}). Default
-\link[httr2:req_perform]{httr2::req_perform}.}
+\link[httr2:req_perform]{httr2::req_perform}. When \code{is_async = TRUE} this is always called as
+\code{.perform(req, pool = pool)} (never with one argument) so each
+asynchronous request gets its own dedicated \code{curl} pool (see Details) --
+a custom asynchronous \code{.perform} MUST accept a \code{pool} argument, e.g.
+\code{function(req, pool = NULL) ...}. The synchronous branch is still called
+as \code{.perform(req)} with one argument, unchanged.}
 
 \item{.parser}{(function) post-processor applied to the parsed data. Default
 \link[base:identity]{base::identity}.}
@@ -90,6 +96,11 @@ must NEVER be marked idempotent (see the retry-safety rule in Details).}
 
 \item{throttle_rate}{(scalar<numeric in ]0, Inf[> | NULL) client-side rate cap
 in requests per second. \code{NULL} (default) disables throttling.}
+
+\item{deadline_margin}{(scalar<numeric in ]0, Inf[>) extra seconds of grace
+added to \code{timeout} before the asynchronous branch's own hard outer deadline
+fires (see Details). Ignored on the synchronous branch, whose own
+\code{req_timeout()} already fires reliably at \code{timeout}. Default \code{5}.}
 
 \item{ctx}{(list) extra context forwarded to \code{sign} (e.g. a timestamp source).
 Default \code{list()}.}
@@ -125,4 +136,52 @@ resend could double-submit. In live trading the trader layer is the single
 retry authority (it routes by typed error class and manages cooldowns); this
 funnel-level convenience is for research and backfill reads only. The transient
 set is 408, 429, any 5xx, and connection failures; \code{Retry-After} is honoured.
+
+\strong{The request deadline (hard rule).} \code{req_timeout()} is reliable on the
+synchronous branch (plain \code{curl::curl_fetch_memory()}; curl enforces its own
+\code{CURLOPT_TIMEOUT} unconditionally). It is NOT reliable on the asynchronous
+branch (\code{req_perform_promise()}), and the reason is now understood: httr2
+1.2.2's own pool poller re-arms a \code{later::later_fd()} wait using curl's
+remaining-timeout value in MILLISECONDS where \code{later_fd()} expects SECONDS
+(a suspected httr2 bug, reported upstream — see NEWS — but not something
+this package can wait on), so a stalled request's own timeout check is
+effectively parked for \code{timeout_secs * 1000} real seconds (around 8.3 hours
+at this package's 30s \code{RestClient} default) rather than firing at \code{timeout}.
+Because httr2's default pool is shared process-wide, one such stall silently
+freezes the poller for every OTHER asynchronous request too (confirmed by
+reproduction), which is exactly the production incident this guards against
+(2026-09-28: a 10-second documented timeout, a 600-second hang). The fix has
+two parts: every asynchronous request now runs in its OWN \code{curl::new_pool()}
+rather than httr2's shared default (the trade-off: no HTTP keep-alive across
+separate asynchronous calls, judged preferable to one stalled request
+freezing the venue for the process's life), and its promise is additionally
+raced (\code{promises::promise_race()}) against a \code{later::later()} timer armed for
+\code{timeout + deadline_margin} seconds — whichever settles first wins, and if
+the timer wins, every handle left in that request's own pool is actively
+cancelled (releasing the stuck file descriptor at once) before the promise
+this function returns rejects; a response that arrives after that is
+discarded, never delivered to the caller. When the REQUEST settles first
+instead (success or its own failure), the deadline timer is disarmed
+immediately, so a successful call never pins its pool, closures, and an
+open keep-alive socket for the full \code{timeout + deadline_margin} window —
+and because httr2's own timeout can still fire on the pooled path (just not
+reliably), a venue answering after \code{timeout} but before the outer deadline
+is reclassified into the same condition rather than left as a raw failure
+carrying the signed request. Both branches therefore surface a timeout the
+same way: a classed \code{connectcore_request_deadline} condition (see
+\code{\link[=abort_request_deadline]{abort_request_deadline()}}) carrying the method, host, query-stripped path,
+and elapsed seconds — never the query string, headers, or body, so a
+signature or API key is never in the error. One edge this cannot close: a
+caller that itself blocks the event loop (e.g. a long synchronous
+computation between polls of \code{later::run_now()}) for longer than \code{timeout}
+cannot observe a success that arrived during that block — by the time
+control returns to the loop the deadline has already fired and that success
+is discarded like any other late response; keep the caller's own loop
+responsive relative to \code{timeout}. \code{timeout} (and so the deadline)
+is enforced PER ATTEMPT: with \code{max_tries > 1} the synchronous branch's
+\code{elapsed} already reflects a full retry/backoff sequence (httr2 runs it
+inside the one call this funnel makes), which can legitimately exceed
+\code{timeout} by a wide margin; the asynchronous (pooled) path has no such
+concern because \code{req_retry()}/\code{req_throttle()} are not honoured on it at all
+(a pre-existing httr2 limitation, unrelated to this fix).
 }
