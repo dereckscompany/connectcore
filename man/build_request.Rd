@@ -63,7 +63,12 @@ body. Ignored unless \code{body_format = "raw"}. Default \code{"application/json
 
 \item{.perform}{(function) the httr2 perform function
 (\link[httr2:req_perform]{httr2::req_perform} or \link[httr2:req_perform_promise]{httr2::req_perform_promise}). Default
-\link[httr2:req_perform]{httr2::req_perform}.}
+\link[httr2:req_perform]{httr2::req_perform}. When \code{is_async = TRUE} this is always called as
+\code{.perform(req, pool = pool)} (never with one argument) so each
+asynchronous request gets its own dedicated \code{curl} pool (see Details) --
+a custom asynchronous \code{.perform} MUST accept a \code{pool} argument, e.g.
+\code{function(req, pool = NULL) ...}. The synchronous branch is still called
+as \code{.perform(req)} with one argument, unchanged.}
 
 \item{.parser}{(function) post-processor applied to the parsed data. Default
 \link[base:identity]{base::identity}.}
@@ -155,11 +160,24 @@ raced (\code{promises::promise_race()}) against a \code{later::later()} timer ar
 the timer wins, every handle left in that request's own pool is actively
 cancelled (releasing the stuck file descriptor at once) before the promise
 this function returns rejects; a response that arrives after that is
-discarded, never delivered to the caller. Both branches surface a timeout
-the same way: a classed \code{connectcore_request_deadline} condition (see
+discarded, never delivered to the caller. When the REQUEST settles first
+instead (success or its own failure), the deadline timer is disarmed
+immediately, so a successful call never pins its pool, closures, and an
+open keep-alive socket for the full \code{timeout + deadline_margin} window —
+and because httr2's own timeout can still fire on the pooled path (just not
+reliably), a venue answering after \code{timeout} but before the outer deadline
+is reclassified into the same condition rather than left as a raw failure
+carrying the signed request. Both branches therefore surface a timeout the
+same way: a classed \code{connectcore_request_deadline} condition (see
 \code{\link[=abort_request_deadline]{abort_request_deadline()}}) carrying the method, host, query-stripped path,
 and elapsed seconds — never the query string, headers, or body, so a
-signature or API key is never in the error. \code{timeout} (and so the deadline)
+signature or API key is never in the error. One edge this cannot close: a
+caller that itself blocks the event loop (e.g. a long synchronous
+computation between polls of \code{later::run_now()}) for longer than \code{timeout}
+cannot observe a success that arrived during that block — by the time
+control returns to the loop the deadline has already fired and that success
+is discarded like any other late response; keep the caller's own loop
+responsive relative to \code{timeout}. \code{timeout} (and so the deadline)
 is enforced PER ATTEMPT: with \code{max_tries > 1} the synchronous branch's
 \code{elapsed} already reflects a full retry/backoff sequence (httr2 runs it
 inside the one call this funnel makes), which can legitimately exceed

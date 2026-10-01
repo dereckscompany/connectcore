@@ -379,39 +379,53 @@ testthat::skip_if_not_installed("callr")
   return(TRUE)
 }
 
-# A minimal TCP stub server, run in a background process. It accepts exactly
-# ONE connection (socketConnection(server = TRUE) performs the accept() at
-# open time), then either:
+# A minimal TCP stub server, run in a background process. Except for
+# "responsive_loop", it accepts exactly ONE connection (socketConnection(server
+# = TRUE) performs the accept() at open time), then either:
 #  - "silent": never reads or writes anything (holds the connection open),
 #  - "late": sleeps `delay` seconds, then writes one minimal valid HTTP/1.1
-#    response and closes, or
-#  - "responsive": answers immediately with a minimal valid HTTP/1.1 response.
-.start_stub_server <- function(mode = c("silent", "late", "responsive"), delay = 0) {
+#    response and closes,
+#  - "responsive": answers immediately with a minimal valid HTTP/1.1 response, or
+#  - "responsive_loop": answers immediately, closes, and goes back to accept
+#    the NEXT connection, indefinitely -- for a test that issues many
+#    sequential requests against one server (never concurrent: each one is
+#    awaited to settlement before the next is issued).
+.start_stub_server <- function(mode = c("silent", "late", "responsive", "responsive_loop"), delay = 0) {
   mode <- match.arg(mode)
   port <- sample(20000:40000, 1)
   proc <- callr::r_bg(
     func = function(port, mode, delay) {
-      con <- socketConnection(host = "0.0.0.0", port = port, server = TRUE, blocking = TRUE, open = "r+b")
-      if (mode %in% c("late", "responsive")) {
-        Sys.sleep(delay)
-        body <- "{}"
-        resp <- paste0(
-          "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ",
-          nchar(body),
-          "\r\nConnection: close\r\n\r\n",
-          body
-        )
-        tryCatch(
-          {
-            writeChar(resp, con, eos = NULL)
-            flush(con)
-          },
-          error = function(e) NULL
-        )
-      } else {
-        Sys.sleep(60) # "silent": accept the connection, never say a word
+      respond_once <- function() {
+        con <- socketConnection(host = "0.0.0.0", port = port, server = TRUE, blocking = TRUE, open = "r+b")
+        if (mode %in% c("late", "responsive", "responsive_loop")) {
+          Sys.sleep(delay)
+          body <- "{}"
+          resp <- paste0(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ",
+            nchar(body),
+            "\r\nConnection: close\r\n\r\n",
+            body
+          )
+          tryCatch(
+            {
+              writeChar(resp, con, eos = NULL)
+              flush(con)
+            },
+            error = function(e) NULL
+          )
+        } else {
+          Sys.sleep(60) # "silent": accept the connection, never say a word
+        }
+        return(close(con))
       }
-      return(close(con))
+      if (identical(mode, "responsive_loop")) {
+        return(
+          repeat {
+            respond_once()
+          }
+        )
+      }
+      return(respond_once())
     },
     args = list(port = port, mode = mode, delay = delay),
     user_profile = FALSE, # skip this project's renv/.Rprofile -- the stub needs only base R
@@ -596,6 +610,135 @@ test_that("async: a stalled request raises connectcore_request_deadline via the 
   expect_identical(res$path, "/v1/orders")
   # Fires at ~ timeout + deadline_margin (1.5s), not at 600s and not never.
   expect_true(res$elapsed > 1 && res$elapsed < 4)
+})
+
+test_that("async: a venue answering between timeout and timeout+margin raises the deadline, not a raw signed failure", {
+  # The edge a second review pass found: curl's OWN timeout CAN still fire on
+  # the pooled path (just not reliably), and when it does -- here, because the
+  # stub answers at 1.6s, after `timeout` (1s) but before the outer deadline
+  # at `timeout + deadline_margin` (3s) -- the unwrapped failure would have
+  # been httr2's raw `httr2_failure`, whose `request` field carries the signed
+  # headers and the signed URL. This proves it is reclassified instead.
+  port <- local_stub_server(mode = "late", delay = 1.6)
+  res <- run_against_stub(
+    function(port) {
+      library(connectcore)
+      library(promises)
+      library(later)
+      library(lubridate)
+      signer <- function(req, keys, ctx) {
+        return(httr2::req_headers(req, Authorization = paste0("Bearer ", keys$secret)))
+      }
+      out <- build_request(
+        base_url = sprintf("http://127.0.0.1:%d", port),
+        endpoint = "/v1/orders",
+        method = "GET",
+        query = list(signature = "TOP-SECRET-SIG"),
+        keys = list(secret = "SUPER-SECRET-TOKEN"),
+        sign = signer,
+        timeout = 1,
+        deadline_margin = 2,
+        .perform = httr2::req_perform_promise,
+        is_async = TRUE
+      )
+      done <- FALSE
+      ok <- NA
+      err <- NULL
+      promises::then(
+        out,
+        onFulfilled = function(v) {
+          done <<- TRUE
+          return(ok <<- TRUE)
+        },
+        onRejected = function(e) {
+          done <<- TRUE
+          ok <<- FALSE
+          return(err <<- e)
+        }
+      )
+      deadline <- lubridate::now("UTC") + lubridate::dseconds(6)
+      while (!done && lubridate::now("UTC") < deadline) {
+        later::run_now(timeoutSecs = 0.05)
+      }
+      return(list(
+        done = done,
+        ok = ok,
+        classes = class(err),
+        has_request_field = !is.null(err[["request"]]),
+        message = conditionMessage(err)
+      ))
+    },
+    port = port,
+    timeout_secs = 10
+  )
+  expect_true(res$done)
+  expect_false(isTRUE(res$ok))
+  expect_true("connectcore_request_deadline" %in% res$classes)
+  expect_true("connectcore_error" %in% res$classes)
+  expect_false(res$has_request_field) # never the raw httr2_failure's $request
+  expect_false(grepl("SUPER-SECRET-TOKEN", res$message, fixed = TRUE))
+  expect_false(grepl("TOP-SECRET-SIG", res$message, fixed = TRUE))
+})
+
+test_that("async: 100 fast successes leave no queued deadline timer and no leaked sockets", {
+  skip_on_os("windows") # the fd-count check below shells out to lsof
+  port <- local_stub_server(mode = "responsive_loop", delay = 0)
+  res <- run_against_stub(
+    function(port) {
+      library(connectcore)
+      library(promises)
+      library(later)
+      library(lubridate)
+      await_one <- function(promise, timeout_secs) {
+        done <- FALSE
+        promises::then(
+          promise,
+          onFulfilled = function(v) {
+            return(done <<- TRUE)
+          },
+          onRejected = function(e) {
+            return(done <<- TRUE)
+          }
+        )
+        deadline <- lubridate::now("UTC") + lubridate::dseconds(timeout_secs)
+        while (!done && lubridate::now("UTC") < deadline) {
+          later::run_now(timeoutSecs = 0.02)
+        }
+        return(done)
+      }
+      ok_count <- 0L
+      for (i in 1:100) {
+        out <- build_request(
+          base_url = sprintf("http://127.0.0.1:%d", port),
+          endpoint = "/v1/orders",
+          method = "GET",
+          .perform = httr2::req_perform_promise,
+          is_async = TRUE,
+          parse_envelope = identity
+        )
+        if (await_one(out, 5)) {
+          ok_count <- ok_count + 1L
+        }
+      }
+      invisible(gc())
+      extra_deadline <- lubridate::now("UTC") + lubridate::dseconds(1)
+      while (lubridate::now("UTC") < extra_deadline) {
+        later::run_now(timeoutSecs = 0.02)
+      }
+      invisible(gc())
+      fd_count <- length(system(
+        sprintf("lsof -p %d -a -i TCP 2>/dev/null | tail -n +2", Sys.getpid()),
+        intern = TRUE
+      ))
+      queue_len <- length(later:::list_queue())
+      return(list(ok_count = ok_count, fd_count = fd_count, queue_len = queue_len))
+    },
+    port = port,
+    timeout_secs = 30
+  )
+  expect_identical(res$ok_count, 100L)
+  expect_identical(res$queue_len, 0L) # the deadline timer was cancelled on every success, none queued
+  expect_identical(res$fd_count, 0L) # no open TCP socket left pinned by an uncancelled timer
 })
 
 test_that("the deadline condition never carries the query string (credential-safe)", {

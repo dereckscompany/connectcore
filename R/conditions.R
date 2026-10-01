@@ -69,7 +69,13 @@
 #'
 #' `url` is stored with query-string credentials redacted (see [abort_api_error()]),
 #' so logging `e$url` never leaks a secret; `e$body_snippet` is a truncated,
-#' log-safe slice of the response body.
+#' log-safe slice of the response body. That guarantee covers the FIELDS this
+#' file documents individually, never the condition object as a whole: a
+#' caller must still log specific fields (`e$status`, `e$url`, ...), not
+#' serialise or `dput()` the whole condition, which can carry an unredacted
+#' `call` (e.g. the exact `build_request()` arguments, including credentials
+#' passed as `keys`) or a `parent` condition from a lower layer that this
+#' package never scrubs.
 #'
 #' ### Recipe: a connector subclasses these
 #'
@@ -380,10 +386,14 @@ abort_mock_error <- function(method = NULL, url = NULL, message = NULL) {
 #' @param message (scalar<character> | NULL) the condition message. `NULL`
 #'   (default) derives a message from `method`, `host`, `path`, and `elapsed`.
 #' @param call (class<environment> | class<call> | NULL) where the condition
-#'   should report as raised from. `build_request()` passes its own frame, so
-#'   the condition prints as raised from the public call a caller actually
-#'   made, not from the private helper several frames down that constructs it.
-#'   Default [rlang::caller_env()] (whoever called this function directly).
+#'   should report as raised from. `build_request()` passes a detached call
+#'   object (`sys.call()`, captured once as a plain value, not a live
+#'   environment reference), so the condition prints as raised from the public
+#'   call a caller actually made -- not from the private helper several frames
+#'   down that constructs it -- even from the asynchronous branch, where the
+#'   deadline fires well after `build_request()` has already returned and its
+#'   own frame is no longer on the call stack. Default [rlang::caller_env()]
+#'   (whoever called this function directly).
 #' @return (class<connectcore_error>) never returns normally; signals the classed
 #'   condition described above.
 #' @importFrom rlang abort caller_env

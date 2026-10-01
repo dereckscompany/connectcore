@@ -128,7 +128,15 @@ fetch_server_time_ms <- function(base_url, time_endpoint, field = "serverTime") 
 #     / connection reuse across separate asynchronous calls -- each one pays a
 #     fresh TCP (and TLS, where applicable) handshake. That is judged strictly
 #     preferable to a single stalled request being able to freeze the venue for
-#     the rest of the process's life.
+#     the rest of the process's life. Cancelling on OUR deadline reclaims the
+#     fd immediately; a request that settles (success or its own failure)
+#     BEFORE the deadline disarms the timer the same way, so a successful call
+#     never pins its pool/socket for the full window. If something stops this
+#     package's own cancellation from ever running (the process itself wedged,
+#     not just one request), the underlying httr2 poller for that one orphaned
+#     pool is still only on the suspected `timeout_secs * 1000` horizon above --
+#     so a live `timeout`/`deadline_margin` should stay modest (seconds, not
+#     minutes): the bigger they are, the longer that worst-case horizon gets.
 #
 # The synchronous branch does not need a pool or a second timer (its own
 # req_timeout() already works) -- it only needs its existing curl timeout
@@ -213,10 +221,28 @@ fetch_server_time_ms <- function(base_url, time_endpoint, field = "serverTime") 
 # SYNCHRONOUS throw from `.perform()` (e.g. a bad `pool` argument) propagates
 # immediately instead of leaving a dangling timer that would later reject a
 # promise this function never got to return.
+#
+# Two further edges this function closes, both found by review:
+#  - If the request settles FIRST (success or its own failure), the deadline
+#    timer is disarmed immediately (`cancel_timer()`). Without this, every
+#    SUCCESSFUL call would still pin its private pool, this closure, and an
+#    open keep-alive socket for the full `deadline_secs` (35s at this
+#    package's defaults) -- a slow fd/memory leak under steady load.
+#  - httr2's own timeout CAN still fire on the pooled path (just not
+#    reliably -- see the file header): a venue answering after `timeout` but
+#    before `timeout + deadline_margin` surfaces as curl's raw
+#    `httr2_failure` otherwise, carrying the signed request (headers, signed
+#    URL) on its `request` field -- a credential leak, and a contradiction of
+#    "both branches surface the same credential-free deadline class". The
+#    request promise is wrapped (`guarded`) to reclassify that one case into
+#    the SAME condition our own timer raises, before racing it; a non-timeout
+#    rejection (DNS failure, connection refused, ...) is re-signalled
+#    completely unchanged.
 .perform_async_with_deadline <- function(request_promise, pool, deadline_secs, fields, started_at, call) {
   force(request_promise)
+  cancel_timer <- NULL
   timer <- promises::promise(function(resolve, reject) {
-    return(later::later(
+    cancel_timer <<- later::later(
       function() {
         handles <- curl::multi_list(pool)
         for (h in handles) {
@@ -225,9 +251,28 @@ fetch_server_time_ms <- function(base_url, time_endpoint, field = "serverTime") 
         return(reject(.deadline_condition(fields, started_at, call)))
       },
       delay = deadline_secs
-    ))
+    )
+    return(invisible(cancel_timer))
   })
-  return(promises::promise_race(request_promise, timer))
+  promises::then(
+    request_promise,
+    onFulfilled = function(v) {
+      return(cancel_timer())
+    },
+    onRejected = function(e) {
+      return(cancel_timer())
+    }
+  )
+  guarded <- promises::then(
+    request_promise,
+    onRejected = function(e) {
+      if (.is_timeout_failure(e)) {
+        return(rlang::cnd_signal(.deadline_condition(fields, started_at, call)))
+      }
+      return(rlang::cnd_signal(e))
+    }
+  )
+  return(promises::promise_race(guarded, timer))
 }
 
 # Package-private monotonic nonce state: max(last + 1, now_ms), so two calls in
@@ -304,11 +349,24 @@ next_nonce <- function() {
 #' the timer wins, every handle left in that request's own pool is actively
 #' cancelled (releasing the stuck file descriptor at once) before the promise
 #' this function returns rejects; a response that arrives after that is
-#' discarded, never delivered to the caller. Both branches surface a timeout
-#' the same way: a classed `connectcore_request_deadline` condition (see
+#' discarded, never delivered to the caller. When the REQUEST settles first
+#' instead (success or its own failure), the deadline timer is disarmed
+#' immediately, so a successful call never pins its pool, closures, and an
+#' open keep-alive socket for the full `timeout + deadline_margin` window —
+#' and because httr2's own timeout can still fire on the pooled path (just not
+#' reliably), a venue answering after `timeout` but before the outer deadline
+#' is reclassified into the same condition rather than left as a raw failure
+#' carrying the signed request. Both branches therefore surface a timeout the
+#' same way: a classed `connectcore_request_deadline` condition (see
 #' [abort_request_deadline()]) carrying the method, host, query-stripped path,
 #' and elapsed seconds — never the query string, headers, or body, so a
-#' signature or API key is never in the error. `timeout` (and so the deadline)
+#' signature or API key is never in the error. One edge this cannot close: a
+#' caller that itself blocks the event loop (e.g. a long synchronous
+#' computation between polls of `later::run_now()`) for longer than `timeout`
+#' cannot observe a success that arrived during that block — by the time
+#' control returns to the loop the deadline has already fired and that success
+#' is discarded like any other late response; keep the caller's own loop
+#' responsive relative to `timeout`. `timeout` (and so the deadline)
 #' is enforced PER ATTEMPT: with `max_tries > 1` the synchronous branch's
 #' `elapsed` already reflects a full retry/backoff sequence (httr2 runs it
 #' inside the one call this funnel makes), which can legitimately exceed
@@ -341,7 +399,12 @@ next_nonce <- function() {
 #'   body. Ignored unless `body_format = "raw"`. Default `"application/json"`.
 #' @param .perform (function) the httr2 perform function
 #'   ([httr2::req_perform] or [httr2::req_perform_promise]). Default
-#'   [httr2::req_perform].
+#'   [httr2::req_perform]. When `is_async = TRUE` this is always called as
+#'   `.perform(req, pool = pool)` (never with one argument) so each
+#'   asynchronous request gets its own dedicated `curl` pool (see Details) --
+#'   a custom asynchronous `.perform` MUST accept a `pool` argument, e.g.
+#'   `function(req, pool = NULL) ...`. The synchronous branch is still called
+#'   as `.perform(req)` with one argument, unchanged.
 #' @param .parser (function) post-processor applied to the parsed data. Default
 #'   [base::identity].
 #' @param is_async (scalar<logical>) whether `.perform` returns a promise. Default

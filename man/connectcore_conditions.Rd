@@ -61,7 +61,13 @@ transport failure (e.g. \verb{$send()} on a closed socket).
 
 \code{url} is stored with query-string credentials redacted (see \code{\link[=abort_api_error]{abort_api_error()}}),
 so logging \code{e$url} never leaks a secret; \code{e$body_snippet} is a truncated,
-log-safe slice of the response body.
+log-safe slice of the response body. That guarantee covers the FIELDS this
+file documents individually, never the condition object as a whole: a
+caller must still log specific fields (\code{e$status}, \code{e$url}, ...), not
+serialise or \code{dput()} the whole condition, which can carry an unredacted
+\code{call} (e.g. the exact \code{build_request()} arguments, including credentials
+passed as \code{keys}) or a \code{parent} condition from a lower layer that this
+package never scrubs.
 }
 
 \subsection{Recipe: a connector subclasses these}{

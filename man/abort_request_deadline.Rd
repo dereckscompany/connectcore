@@ -28,10 +28,14 @@ request starting and the deadline firing.}
 (default) derives a message from \code{method}, \code{host}, \code{path}, and \code{elapsed}.}
 
 \item{call}{(class<environment> | class<call> | NULL) where the condition
-should report as raised from. \code{build_request()} passes its own frame, so
-the condition prints as raised from the public call a caller actually
-made, not from the private helper several frames down that constructs it.
-Default \code{\link[rlang:stack]{rlang::caller_env()}} (whoever called this function directly).}
+should report as raised from. \code{build_request()} passes a detached call
+object (\code{sys.call()}, captured once as a plain value, not a live
+environment reference), so the condition prints as raised from the public
+call a caller actually made -- not from the private helper several frames
+down that constructs it -- even from the asynchronous branch, where the
+deadline fires well after \code{build_request()} has already returned and its
+own frame is no longer on the call stack. Default \code{\link[rlang:stack]{rlang::caller_env()}}
+(whoever called this function directly).}
 }
 \value{
 (class<connectcore_error>) never returns normally; signals the classed
