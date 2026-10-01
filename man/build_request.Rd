@@ -23,6 +23,7 @@ build_request(
   max_tries = 1L,
   idempotent = identical(toupper(method), "GET"),
   throttle_rate = NULL,
+  deadline_margin = 5,
   ctx = list()
 )
 }
@@ -91,6 +92,11 @@ must NEVER be marked idempotent (see the retry-safety rule in Details).}
 \item{throttle_rate}{(scalar<numeric in ]0, Inf[> | NULL) client-side rate cap
 in requests per second. \code{NULL} (default) disables throttling.}
 
+\item{deadline_margin}{(scalar<numeric in ]0, Inf[>) extra seconds of grace
+added to \code{timeout} before the asynchronous branch's own hard outer deadline
+fires (see Details). Ignored on the synchronous branch, whose own
+\code{req_timeout()} already fires reliably at \code{timeout}. Default \code{5}.}
+
 \item{ctx}{(list) extra context forwarded to \code{sign} (e.g. a timestamp source).
 Default \code{list()}.}
 }
@@ -125,4 +131,22 @@ resend could double-submit. In live trading the trader layer is the single
 retry authority (it routes by typed error class and manages cooldowns); this
 funnel-level convenience is for research and backfill reads only. The transient
 set is 408, 429, any 5xx, and connection failures; \code{Retry-After} is honoured.
+
+\strong{The request deadline (hard rule).} \code{req_timeout()} is reliable on the
+synchronous branch (plain \code{curl::curl_fetch_memory()}; curl enforces its own
+\code{CURLOPT_TIMEOUT} unconditionally) but is NOT reliable on the asynchronous
+branch (\code{req_perform_promise()}): against a stub server that accepts the TCP
+connection and then never writes a byte, the returned promise never settled
+at all, timeout or no. A connection the venue holds open but silent — the
+production incident this guards against (2026-09-28: a 10-second documented
+timeout, a 600-second hang) — produces exactly that shape of stall. So every
+asynchronous request is additionally raced
+(\code{promises::promise_race()}) against a \code{later::later()} timer armed for
+\code{timeout + deadline_margin} seconds; whichever settles first wins, and if the
+timer wins the real request promise is simply abandoned — a response that
+arrives after the deadline is discarded, never delivered to the caller. Both
+branches surface a timeout the same way: a classed \code{connectcore_request_deadline}
+condition (see \code{\link[=abort_request_deadline]{abort_request_deadline()}}) carrying the method, host,
+query-stripped path, and elapsed seconds — never the query string, headers, or
+body, so a signature or API key is never in the error.
 }

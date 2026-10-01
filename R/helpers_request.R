@@ -86,6 +86,89 @@ fetch_server_time_ms <- function(base_url, time_endpoint, field = "serverTime") 
   return(assert_return_fetch_server_time_ms(as.numeric(value)))
 }
 
+# ---- Hard outer deadline (both branches end up classed `connectcore_request_deadline`) ----
+#
+# `httr2::req_timeout()` is reliable on the SYNCHRONOUS branch: it is a plain
+# `curl::curl_fetch_memory()` call, and curl enforces its own `CURLOPT_TIMEOUT`
+# regardless of who is watching. It is NOT reliable on the ASYNCHRONOUS branch
+# (`req_perform_promise()`): confirmed empirically (see NEWS, this release)
+# against a stub server that accepts the TCP connection and never writes a
+# byte -- the returned promise never settled at all, even after eight seconds
+# of actively pumping `later::run_now()` every 100ms with `req_timeout(2)` set.
+# A second probe (a server that responds AFTER the nominal timeout) showed the
+# async branch eventually raising its own timeout failure, but only once some
+# socket activity gave curl's multi-handle an event to react to, and well past
+# the documented timeout -- i.e. the async timeout fires opportunistically on
+# I/O, not on a proactive clock. A connection that is held open but silent (the
+# 2026-09-28 incident) has no such event, so nothing ever fires.
+#
+# The fix is NOT to trust req_timeout() alone on the async branch: build_request()
+# also races the request promise against a `later::later()` timer set at
+# `timeout + deadline_margin` (`promises::promise_race()`), so the promise this
+# function returns always settles. The synchronous branch does not need a
+# second timer (its own req_timeout() already works) -- it only needs its
+# existing curl timeout RECLASSIFIED into the same condition, so a caller
+# catches one class regardless of which mode is in use.
+
+# The (method, host, path) a deadline condition reports. The query string is
+# always dropped entirely (not merely redacted) -- see `abort_request_deadline()`
+# for why that is stricter than the `scrub_url()` treatment the other
+# conditions use.
+.deadline_request_fields <- function(req, method) {
+  parsed <- httr2::url_parse(req$url)
+  return(list(method = toupper(method), host = parsed$hostname, path = parsed$path))
+}
+
+# Build (but do not signal) the classed deadline condition, so it can be handed
+# to a promise's `reject()` instead of thrown.
+.deadline_condition <- function(fields, started_at) {
+  elapsed <- as.numeric(difftime(lubridate::now("UTC"), started_at, units = "secs"))
+  return(tryCatch(
+    abort_request_deadline(method = fields$method, host = fields$host, path = fields$path, elapsed = elapsed),
+    error = function(e) e
+  ))
+}
+
+# Was this synchronous failure httr2/curl's own `req_timeout()` firing? Curl
+# tags a genuine operation timeout with `curl_error_operation_timedout` on the
+# wrapped `$parent` condition; anything else (DNS failure, connection refused,
+# TLS failure, a non-timeout curl error, ...) is rethrown unchanged.
+.is_timeout_failure <- function(e) {
+  return(inherits(e, "httr2_failure") && inherits(e[["parent"]], "curl_error_operation_timedout"))
+}
+
+# Synchronous branch: perform the request, reclassifying a genuine req_timeout()
+# failure into `connectcore_request_deadline`; any other error is rethrown
+# unchanged.
+.perform_sync_with_deadline <- function(perform_once, fields, started_at) {
+  return(tryCatch(
+    perform_once(),
+    error = function(e) {
+      if (.is_timeout_failure(e)) {
+        stop(.deadline_condition(fields, started_at))
+      }
+      stop(e)
+    }
+  ))
+}
+
+# Asynchronous branch: race the request promise against a `later()` timer set
+# at `deadline_secs`, so the returned promise always settles. If the timer wins,
+# the request promise is simply abandoned -- whatever it eventually resolves or
+# rejects with is never read by anything downstream of this call, so a late
+# response is discarded, never delivered.
+.perform_async_with_deadline <- function(request_promise, deadline_secs, fields, started_at) {
+  timer <- promises::promise(function(resolve, reject) {
+    return(later::later(
+      function() {
+        return(reject(.deadline_condition(fields, started_at)))
+      },
+      delay = deadline_secs
+    ))
+  })
+  return(promises::promise_race(request_promise, timer))
+}
+
 # Package-private monotonic nonce state: max(last + 1, now_ms), so two calls in
 # the same millisecond still strictly increase. Used by nonce-based signed APIs.
 .nonce_state <- new.env(parent = emptyenv())
@@ -137,6 +220,24 @@ next_nonce <- function() {
 #' funnel-level convenience is for research and backfill reads only. The transient
 #' set is 408, 429, any 5xx, and connection failures; `Retry-After` is honoured.
 #'
+#' **The request deadline (hard rule).** `req_timeout()` is reliable on the
+#' synchronous branch (plain `curl::curl_fetch_memory()`; curl enforces its own
+#' `CURLOPT_TIMEOUT` unconditionally) but is NOT reliable on the asynchronous
+#' branch (`req_perform_promise()`): against a stub server that accepts the TCP
+#' connection and then never writes a byte, the returned promise never settled
+#' at all, timeout or no. A connection the venue holds open but silent — the
+#' production incident this guards against (2026-09-28: a 10-second documented
+#' timeout, a 600-second hang) — produces exactly that shape of stall. So every
+#' asynchronous request is additionally raced
+#' (`promises::promise_race()`) against a `later::later()` timer armed for
+#' `timeout + deadline_margin` seconds; whichever settles first wins, and if the
+#' timer wins the real request promise is simply abandoned — a response that
+#' arrives after the deadline is discarded, never delivered to the caller. Both
+#' branches surface a timeout the same way: a classed `connectcore_request_deadline`
+#' condition (see [abort_request_deadline()]) carrying the method, host,
+#' query-stripped path, and elapsed seconds — never the query string, headers, or
+#' body, so a signature or API key is never in the error.
+#'
 #' @param base_url (scalar<character>) the API base URL.
 #' @param endpoint (scalar<character>) the path appended to `base_url`.
 #' @param method (scalar<character>) the HTTP method. Default `"GET"`.
@@ -183,11 +284,19 @@ next_nonce <- function() {
 #'   must NEVER be marked idempotent (see the retry-safety rule in Details).
 #' @param throttle_rate (scalar<numeric in ]0, Inf[> | NULL) client-side rate cap
 #'   in requests per second. `NULL` (default) disables throttling.
+#' @param deadline_margin (scalar<numeric in ]0, Inf[>) extra seconds of grace
+#'   added to `timeout` before the asynchronous branch's own hard outer deadline
+#'   fires (see Details). Ignored on the synchronous branch, whose own
+#'   `req_timeout()` already fires reliably at `timeout`. Default `5`.
 #' @param ctx (list) extra context forwarded to `sign` (e.g. a timestamp source).
 #'   Default `list()`.
 #' @return (any) the post-processed data, or a promise resolving to it.
 #' @importFrom httr2 request req_method req_url_path_append req_url_query
 #'   req_body_raw req_timeout req_user_agent req_error req_retry req_throttle req_perform
+#'   url_parse
+#' @importFrom promises promise promise_race
+#' @importFrom later later
+#' @importFrom lubridate now
 #' @export
 build_request <- function(
   base_url,
@@ -208,6 +317,7 @@ build_request <- function(
   max_tries = 1L,
   idempotent = identical(toupper(method), "GET"),
   throttle_rate = NULL,
+  deadline_margin = 5,
   ctx = list()
 ) {
   body_format <- match.arg(body_format)
@@ -230,6 +340,7 @@ build_request <- function(
     max_tries,
     idempotent,
     throttle_rate,
+    deadline_margin,
     ctx
   )
 
@@ -296,7 +407,16 @@ build_request <- function(
     req <- sign(req, keys, ctx)
   }
 
-  result <- .perform(req)
+  started_at <- lubridate::now("UTC")
+  deadline_fields <- .deadline_request_fields(req, method)
+
+  result <- NULL
+  if (is_async) {
+    result <- .perform_async_with_deadline(.perform(req), timeout + deadline_margin, deadline_fields, started_at)
+  } else {
+    result <- .perform_sync_with_deadline(function() .perform(req), deadline_fields, started_at)
+  }
+
   return(then_or_now(
     result,
     function(resp) .parser(parse_envelope(resp)),

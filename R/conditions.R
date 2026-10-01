@@ -28,6 +28,7 @@
 #' | [abort_response_error()] | `connectcore_response_error` | `field`, `url`, `body_snippet` | malformed body |
 #' | [abort_stream_error()] | `connectcore_stream_error` | `url` | `StreamClient` transport failure |
 #' | [abort_mock_error()] | `connectcore_mock_error` | `method`, `url` | test mock router has no route for the request |
+#' | [abort_request_deadline()] | `connectcore_request_deadline` | `method`, `host`, `path`, `elapsed` | deadline |
 #'
 #' The response-body field is `body_snippet` (not `body`) because `rlang::abort()`
 #' reserves `body` for its own message formatting; a field named `body` would be
@@ -107,7 +108,8 @@
 #' For a connector that keeps the default HTTP-status envelope, no work is needed:
 #' it inherits [abort_api_error()] through [parse_json_response()] for free.
 #'
-#' @seealso [abort_api_error()], [abort_response_error()], [abort_stream_error()], [abort_mock_error()]
+#' @seealso [abort_api_error()], [abort_response_error()], [abort_stream_error()],
+#'   [abort_mock_error()], [abort_request_deadline()]
 #' @name connectcore_conditions
 NULL
 
@@ -346,6 +348,62 @@ abort_mock_error <- function(method = NULL, url = NULL, message = NULL) {
     class = c("connectcore_mock_error", "connectcore_error"),
     method = method,
     url = url,
+    call = rlang::caller_env()
+  ))
+}
+
+#' Raise a typed request-deadline error
+#'
+#' Signals a condition classed `c("connectcore_request_deadline",`
+#' `"connectcore_error")` when a REST request exceeds its hard deadline: either
+#' `httr2::req_timeout()` firing on the synchronous branch, or the outer
+#' `promises::promise_race()` guard firing on the asynchronous branch because the
+#' underlying request promise never settled (see Details in [build_request()] for
+#' why the async branch needs that guard at all). Carries the request `method`,
+#' `host`, and `path` as structured fields, and the observed `elapsed` seconds.
+#'
+#' Unlike [abort_api_error()]'s `url` field, which keeps the path and
+#' non-sensitive query parameters and only redacts credential *values* with
+#' [scrub_url()], `path` here carries NO query string at all — a stalled
+#' request's deadline is reported from a layer that sits outside the
+#' signing/parsing seam, so there is no occasion on which the exact set of
+#' "sensitive" parameter names could be wrong, and dropping the query string
+#' entirely is simpler and strictly safer. A caller that needs the query for
+#' debugging already has it from the original call site.
+#'
+#' @param method (scalar<character>) the request's HTTP method.
+#' @param host (scalar<character> | NULL) the request's hostname. Default `NULL`.
+#' @param path (scalar<character> | NULL) the request's URL path, with no query
+#'   string. Default `NULL`.
+#' @param elapsed (scalar<numeric in [0, Inf[>) seconds observed between the
+#'   request starting and the deadline firing.
+#' @param message (scalar<character> | NULL) the condition message. `NULL`
+#'   (default) derives a message from `method`, `host`, `path`, and `elapsed`.
+#' @return (class<connectcore_error>) never returns normally; signals the classed
+#'   condition described above.
+#' @importFrom rlang abort caller_env
+#' @seealso [connectcore_conditions], [build_request()]
+#' @noassert
+#' @export
+abort_request_deadline <- function(method, host = NULL, path = NULL, elapsed, message = NULL) {
+  if (is.null(message)) {
+    host_part <- ""
+    if (!is.null(host)) {
+      host_part <- host
+    }
+    path_part <- ""
+    if (!is.null(path)) {
+      path_part <- path
+    }
+    message <- sprintf("Request exceeded its deadline after %.1fs: %s %s%s", elapsed, method, host_part, path_part)
+  }
+  return(rlang::abort(
+    message = message,
+    class = c("connectcore_request_deadline", "connectcore_error"),
+    method = method,
+    host = host,
+    path = path,
+    elapsed = elapsed,
     call = rlang::caller_env()
   ))
 }
