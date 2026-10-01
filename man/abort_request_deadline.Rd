@@ -9,7 +9,8 @@ abort_request_deadline(
   host = NULL,
   path = NULL,
   elapsed,
-  message = NULL
+  message = NULL,
+  call = rlang::caller_env()
 )
 }
 \arguments{
@@ -25,6 +26,12 @@ request starting and the deadline firing.}
 
 \item{message}{(scalar<character> | NULL) the condition message. \code{NULL}
 (default) derives a message from \code{method}, \code{host}, \code{path}, and \code{elapsed}.}
+
+\item{call}{(class<environment> | class<call> | NULL) where the condition
+should report as raised from. \code{build_request()} passes its own frame, so
+the condition prints as raised from the public call a caller actually
+made, not from the private helper several frames down that constructs it.
+Default \code{\link[rlang:stack]{rlang::caller_env()}} (whoever called this function directly).}
 }
 \value{
 (class<connectcore_error>) never returns normally; signals the classed

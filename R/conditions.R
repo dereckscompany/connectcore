@@ -379,13 +379,25 @@ abort_mock_error <- function(method = NULL, url = NULL, message = NULL) {
 #'   request starting and the deadline firing.
 #' @param message (scalar<character> | NULL) the condition message. `NULL`
 #'   (default) derives a message from `method`, `host`, `path`, and `elapsed`.
+#' @param call (class<environment> | class<call> | NULL) where the condition
+#'   should report as raised from. `build_request()` passes its own frame, so
+#'   the condition prints as raised from the public call a caller actually
+#'   made, not from the private helper several frames down that constructs it.
+#'   Default [rlang::caller_env()] (whoever called this function directly).
 #' @return (class<connectcore_error>) never returns normally; signals the classed
 #'   condition described above.
 #' @importFrom rlang abort caller_env
 #' @seealso [connectcore_conditions], [build_request()]
 #' @noassert
 #' @export
-abort_request_deadline <- function(method, host = NULL, path = NULL, elapsed, message = NULL) {
+abort_request_deadline <- function(
+  method,
+  host = NULL,
+  path = NULL,
+  elapsed,
+  message = NULL,
+  call = rlang::caller_env()
+) {
   if (is.null(message)) {
     host_part <- ""
     if (!is.null(host)) {
@@ -404,6 +416,6 @@ abort_request_deadline <- function(method, host = NULL, path = NULL, elapsed, me
     host = host,
     path = path,
     elapsed = elapsed,
-    call = rlang::caller_env()
+    call = call
   ))
 }

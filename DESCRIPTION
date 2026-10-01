@@ -23,6 +23,7 @@ Imports:
     rlang,
     data.table,
     httr2 (>= 1.0.0),
+    curl,
     jsonlite,
     digest,
     lubridate,

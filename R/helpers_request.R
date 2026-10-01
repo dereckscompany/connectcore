@@ -90,25 +90,58 @@ fetch_server_time_ms <- function(base_url, time_endpoint, field = "serverTime") 
 #
 # `httr2::req_timeout()` is reliable on the SYNCHRONOUS branch: it is a plain
 # `curl::curl_fetch_memory()` call, and curl enforces its own `CURLOPT_TIMEOUT`
-# regardless of who is watching. It is NOT reliable on the ASYNCHRONOUS branch
-# (`req_perform_promise()`): confirmed empirically (see NEWS, this release)
-# against a stub server that accepts the TCP connection and never writes a
-# byte -- the returned promise never settled at all, even after eight seconds
-# of actively pumping `later::run_now()` every 100ms with `req_timeout(2)` set.
-# A second probe (a server that responds AFTER the nominal timeout) showed the
-# async branch eventually raising its own timeout failure, but only once some
-# socket activity gave curl's multi-handle an event to react to, and well past
-# the documented timeout -- i.e. the async timeout fires opportunistically on
-# I/O, not on a proactive clock. A connection that is held open but silent (the
-# 2026-09-28 incident) has no such event, so nothing ever fires.
+# regardless of who is watching -- confirmed empirically (see NEWS, this
+# release) at ~1s past a 1s timeout against a stub server that accepts the TCP
+# connection and never writes a byte.
 #
-# The fix is NOT to trust req_timeout() alone on the async branch: build_request()
-# also races the request promise against a `later::later()` timer set at
-# `timeout + deadline_margin` (`promises::promise_race()`), so the promise this
-# function returns always settles. The synchronous branch does not need a
-# second timer (its own req_timeout() already works) -- it only needs its
-# existing curl timeout RECLASSIFIED into the same condition, so a caller
-# catches one class regardless of which mode is in use.
+# The ASYNCHRONOUS branch (`req_perform_promise()`) is NOT reliable against the
+# same stub: the promise did not settle within 5-8s of actively pumping
+# `later::run_now()`. The root cause traces into httr2 1.2.2's own pool poller
+# (`httr2:::ensure_pool_poller()`), which re-arms itself with
+# `later::later_fd(timeout = curl::multi_fdset(pool)$timeout)`; `curl::multi_fdset()`
+# reports that timeout in MILLISECONDS (matching libcurl's own
+# `curl_multi_timeout()`), but `later::later_fd()`'s `timeout` is documented in
+# SECONDS. The poller therefore re-arms for roughly `timeout_secs * 1000`
+# real seconds (around 8.3 hours at this package's 30s `RestClient` default)
+# rather than the ~30s a caller would expect -- a suspected httr2 bug, reported
+# upstream, but not something this package can wait on (see NEWS). Confirmed
+# by direct reproduction: an abandoned request on the DEFAULT (shared) curl
+# pool left that pool's poller parked long enough that a second, wholly
+# unrelated request to a fast, responsive host on the SAME pool also failed to
+# settle within ten seconds, with two handles stuck in `curl::multi_list()`.
+# On a resident container every connector call shares that one default pool,
+# so a single stalled request would silently freeze EVERY later async call for
+# the rest of the process's life, not just the one that stalled.
+#
+# The fix has two parts:
+#  1. A hard outer deadline: race the request promise against a `later::later()`
+#     timer set at `timeout + deadline_margin` (`promises::promise_race()`), so
+#     the promise this function returns always settles, regardless of whether
+#     or when httr2's own timeout ever fires.
+#  2. Give every asynchronous request its OWN `curl::new_pool()` (never the
+#     shared default), and CANCEL every handle left in that pool
+#     (`curl::multi_cancel()`) the moment the deadline timer fires, before
+#     rejecting. This releases the stuck file descriptor immediately and keeps
+#     the poisoned state confined to a pool nobody else will ever touch again,
+#     instead of letting it accumulate in (and eventually freeze) the shared
+#     default pool. The trade-off: a per-request pool means no HTTP keep-alive
+#     / connection reuse across separate asynchronous calls -- each one pays a
+#     fresh TCP (and TLS, where applicable) handshake. That is judged strictly
+#     preferable to a single stalled request being able to freeze the venue for
+#     the rest of the process's life.
+#
+# The synchronous branch does not need a pool or a second timer (its own
+# req_timeout() already works) -- it only needs its existing curl timeout
+# RECLASSIFIED into the same condition, so a caller catches one class
+# regardless of which mode is in use. Note `timeout` is enforced PER ATTEMPT:
+# when `max_tries > 1`, httr2 runs the full retry/backoff sequence for a
+# transient failure INSIDE one `.perform(req)` call before ever raising, so
+# `elapsed` below already reflects that whole sequence, not a single try --
+# but it means the time-to-failure can legitimately exceed `timeout` by a wide
+# margin when retries are configured. The asynchronous (pooled) path has no
+# such concern: `req_retry()`/`req_throttle()` policies are not honoured by
+# httr2's pooled/promise request path at all (a pre-existing httr2 limitation,
+# unrelated to this fix).
 
 # The (method, host, path) a deadline condition reports. The query string is
 # always dropped entirely (not merely redacted) -- see `abort_request_deadline()`
@@ -119,12 +152,28 @@ fetch_server_time_ms <- function(base_url, time_endpoint, field = "serverTime") 
   return(list(method = toupper(method), host = parsed$hostname, path = parsed$path))
 }
 
+# Seconds elapsed from `started_at` to now, via lubridate (never base
+# Sys.time()/difftime() arithmetic).
+.elapsed_secs <- function(started_at) {
+  return(lubridate::time_length(lubridate::interval(started_at, lubridate::now("UTC")), "seconds"))
+}
+
 # Build (but do not signal) the classed deadline condition, so it can be handed
-# to a promise's `reject()` instead of thrown.
-.deadline_condition <- function(fields, started_at) {
-  elapsed <- as.numeric(difftime(lubridate::now("UTC"), started_at, units = "secs"))
+# to a promise's `reject()` instead of thrown, or re-signalled with
+# `rlang::cnd_signal()`. `call` is the environment the condition should report
+# as raised from (see the two call sites below): without it, the condition
+# would print as raised inside this internal helper rather than inside the
+# public `build_request()` call the caller actually made.
+.deadline_condition <- function(fields, started_at, call) {
+  elapsed <- .elapsed_secs(started_at)
   return(tryCatch(
-    abort_request_deadline(method = fields$method, host = fields$host, path = fields$path, elapsed = elapsed),
+    abort_request_deadline(
+      method = fields$method,
+      host = fields$host,
+      path = fields$path,
+      elapsed = elapsed,
+      call = call
+    ),
     error = function(e) e
   ))
 }
@@ -138,30 +187,42 @@ fetch_server_time_ms <- function(base_url, time_endpoint, field = "serverTime") 
 }
 
 # Synchronous branch: perform the request, reclassifying a genuine req_timeout()
-# failure into `connectcore_request_deadline`; any other error is rethrown
-# unchanged.
-.perform_sync_with_deadline <- function(perform_once, fields, started_at) {
+# failure into `connectcore_request_deadline`; any other error is re-signalled
+# unchanged via `rlang::cnd_signal()` (never a bare `stop()`).
+.perform_sync_with_deadline <- function(perform_once, fields, started_at, call) {
   return(tryCatch(
     perform_once(),
     error = function(e) {
       if (.is_timeout_failure(e)) {
-        stop(.deadline_condition(fields, started_at))
+        return(rlang::cnd_signal(.deadline_condition(fields, started_at, call)))
       }
-      stop(e)
+      return(rlang::cnd_signal(e))
     }
   ))
 }
 
-# Asynchronous branch: race the request promise against a `later()` timer set
-# at `deadline_secs`, so the returned promise always settles. If the timer wins,
-# the request promise is simply abandoned -- whatever it eventually resolves or
-# rejects with is never read by anything downstream of this call, so a late
-# response is discarded, never delivered.
-.perform_async_with_deadline <- function(request_promise, deadline_secs, fields, started_at) {
+# Asynchronous branch: give the request its OWN curl pool (never the shared
+# default -- see the file-header note on why), then race its promise against a
+# `later()` timer set at `deadline_secs`, so the returned promise always
+# settles. If the timer wins, every handle still in `pool` is cancelled before
+# rejecting, releasing the stuck file descriptor at once and confining the
+# abandoned request to a pool nothing else will ever touch; whatever the real
+# request eventually resolves or rejects with after that is never read by
+# anything downstream, so a late response is discarded, never delivered.
+# `request_promise` is forced FIRST, before the timer is armed, so a
+# SYNCHRONOUS throw from `.perform()` (e.g. a bad `pool` argument) propagates
+# immediately instead of leaving a dangling timer that would later reject a
+# promise this function never got to return.
+.perform_async_with_deadline <- function(request_promise, pool, deadline_secs, fields, started_at, call) {
+  force(request_promise)
   timer <- promises::promise(function(resolve, reject) {
     return(later::later(
       function() {
-        return(reject(.deadline_condition(fields, started_at)))
+        handles <- curl::multi_list(pool)
+        for (h in handles) {
+          curl::multi_cancel(h)
+        }
+        return(reject(.deadline_condition(fields, started_at, call)))
       },
       delay = deadline_secs
     ))
@@ -222,21 +283,38 @@ next_nonce <- function() {
 #'
 #' **The request deadline (hard rule).** `req_timeout()` is reliable on the
 #' synchronous branch (plain `curl::curl_fetch_memory()`; curl enforces its own
-#' `CURLOPT_TIMEOUT` unconditionally) but is NOT reliable on the asynchronous
-#' branch (`req_perform_promise()`): against a stub server that accepts the TCP
-#' connection and then never writes a byte, the returned promise never settled
-#' at all, timeout or no. A connection the venue holds open but silent — the
-#' production incident this guards against (2026-09-28: a 10-second documented
-#' timeout, a 600-second hang) — produces exactly that shape of stall. So every
-#' asynchronous request is additionally raced
-#' (`promises::promise_race()`) against a `later::later()` timer armed for
-#' `timeout + deadline_margin` seconds; whichever settles first wins, and if the
-#' timer wins the real request promise is simply abandoned — a response that
-#' arrives after the deadline is discarded, never delivered to the caller. Both
-#' branches surface a timeout the same way: a classed `connectcore_request_deadline`
-#' condition (see [abort_request_deadline()]) carrying the method, host,
-#' query-stripped path, and elapsed seconds — never the query string, headers, or
-#' body, so a signature or API key is never in the error.
+#' `CURLOPT_TIMEOUT` unconditionally). It is NOT reliable on the asynchronous
+#' branch (`req_perform_promise()`), and the reason is now understood: httr2
+#' 1.2.2's own pool poller re-arms a `later::later_fd()` wait using curl's
+#' remaining-timeout value in MILLISECONDS where `later_fd()` expects SECONDS
+#' (a suspected httr2 bug, reported upstream — see NEWS — but not something
+#' this package can wait on), so a stalled request's own timeout check is
+#' effectively parked for `timeout_secs * 1000` real seconds (around 8.3 hours
+#' at this package's 30s `RestClient` default) rather than firing at `timeout`.
+#' Because httr2's default pool is shared process-wide, one such stall silently
+#' freezes the poller for every OTHER asynchronous request too (confirmed by
+#' reproduction), which is exactly the production incident this guards against
+#' (2026-09-28: a 10-second documented timeout, a 600-second hang). The fix has
+#' two parts: every asynchronous request now runs in its OWN `curl::new_pool()`
+#' rather than httr2's shared default (the trade-off: no HTTP keep-alive across
+#' separate asynchronous calls, judged preferable to one stalled request
+#' freezing the venue for the process's life), and its promise is additionally
+#' raced (`promises::promise_race()`) against a `later::later()` timer armed for
+#' `timeout + deadline_margin` seconds — whichever settles first wins, and if
+#' the timer wins, every handle left in that request's own pool is actively
+#' cancelled (releasing the stuck file descriptor at once) before the promise
+#' this function returns rejects; a response that arrives after that is
+#' discarded, never delivered to the caller. Both branches surface a timeout
+#' the same way: a classed `connectcore_request_deadline` condition (see
+#' [abort_request_deadline()]) carrying the method, host, query-stripped path,
+#' and elapsed seconds — never the query string, headers, or body, so a
+#' signature or API key is never in the error. `timeout` (and so the deadline)
+#' is enforced PER ATTEMPT: with `max_tries > 1` the synchronous branch's
+#' `elapsed` already reflects a full retry/backoff sequence (httr2 runs it
+#' inside the one call this funnel makes), which can legitimately exceed
+#' `timeout` by a wide margin; the asynchronous (pooled) path has no such
+#' concern because `req_retry()`/`req_throttle()` are not honoured on it at all
+#' (a pre-existing httr2 limitation, unrelated to this fix).
 #'
 #' @param base_url (scalar<character>) the API base URL.
 #' @param endpoint (scalar<character>) the path appended to `base_url`.
@@ -296,7 +374,9 @@ next_nonce <- function() {
 #'   url_parse
 #' @importFrom promises promise promise_race
 #' @importFrom later later
-#' @importFrom lubridate now
+#' @importFrom lubridate now interval time_length
+#' @importFrom curl new_pool multi_list multi_cancel
+#' @importFrom rlang cnd_signal
 #' @export
 build_request <- function(
   base_url,
@@ -409,12 +489,30 @@ build_request <- function(
 
   started_at <- lubridate::now("UTC")
   deadline_fields <- .deadline_request_fields(req, method)
+  # A plain call VALUE (not an environment reference), captured here so a
+  # deadline condition reports as raised from this public build_request()
+  # call, not from an internal helper several frames down. This matters most
+  # on the asynchronous branch: by the time the deadline timer fires,
+  # build_request() has long since returned and its frame is no longer live,
+  # so an environment-based `call` (e.g. rlang::current_env()) silently loses
+  # its attribution there, printing a bare "Error:" -- a detached call OBJECT
+  # like sys.call() keeps working because it does not depend on the frame
+  # still being on the stack.
+  call_obj <- sys.call()
 
   result <- NULL
   if (is_async) {
-    result <- .perform_async_with_deadline(.perform(req), timeout + deadline_margin, deadline_fields, started_at)
+    pool <- curl::new_pool() # never the shared default pool -- see the file-header note above
+    result <- .perform_async_with_deadline(
+      .perform(req, pool = pool),
+      pool,
+      timeout + deadline_margin,
+      deadline_fields,
+      started_at,
+      call_obj
+    )
   } else {
-    result <- .perform_sync_with_deadline(function() .perform(req), deadline_fields, started_at)
+    result <- .perform_sync_with_deadline(function() .perform(req), deadline_fields, started_at, call_obj)
   }
 
   return(then_or_now(
