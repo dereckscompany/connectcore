@@ -23,10 +23,9 @@ reference:
       - StreamClient
       - build_request
   - title: Authentication and signing
-    desc: Request signing, credential loading, and nonces.
+    desc: Request signing and nonces.
     contents:
       - hmac_query_sign
-      - load_keys
       - next_nonce
   - title: Typed conditions
     desc: >

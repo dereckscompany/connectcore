@@ -486,17 +486,6 @@ assert_return_url_getter <- function(value) {
   return(value)
 }
 
-assert_args_load_keys <- function(spec, warn) {
-  assert_list(spec)
-  assert_scalar_logical(warn)
-  return(invisible(NULL))
-}
-
-assert_return_load_keys <- function(value) {
-  assert_list(value)
-  return(value)
-}
-
 assert_args_epoch_to_datetime <- function(value, unit) {
   assert_double(value)
   assert_no_missing_values(value)
