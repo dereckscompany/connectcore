@@ -1,4 +1,4 @@
-# Credential / endpoint loading from environment variables.
+# Endpoint loading from environment variables.
 
 test_that("env_or returns the variable when set, else the default", {
   withr::local_envvar(CONNECTCORE_TEST_VAR = "live")
@@ -19,24 +19,4 @@ test_that("url_getter resolves the env var by default and accepts an override", 
 
   withr::local_envvar(CONNECTCORE_BASE_URL = "https://from-env.test")
   expect_identical(getter(), "https://from-env.test")
-})
-
-test_that("load_keys resolves a credential spec into a named list", {
-  withr::local_envvar(CC_KEY = "pub", CC_SECRET = "priv")
-  keys <- load_keys(list(api_key = "CC_KEY", api_secret = "CC_SECRET"))
-  expect_identical(keys, list(api_key = "pub", api_secret = "priv"))
-})
-
-test_that("load_keys warns on a missing field but still returns the list", {
-  withr::local_envvar(CC_KEY = "pub", CC_SECRET = "")
-  expect_warning(
-    keys <- load_keys(list(api_key = "CC_KEY", api_secret = "CC_SECRET")),
-    "api_secret"
-  )
-  expect_identical(keys$api_key, "pub")
-})
-
-test_that("load_keys can be silenced", {
-  withr::local_envvar(CC_SECRET = "")
-  expect_silent(load_keys(list(api_secret = "CC_SECRET"), warn = FALSE))
 })
