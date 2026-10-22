@@ -3,6 +3,7 @@
 **One exported helper that nothing in the fleet ever called, `load_keys()`, has been removed; every other function behaves exactly as before.** `load_keys()` turned a named list of environment-variable names into a list of credential values, with a warning for any that were empty. The wrapper packages never adopted it: each reads its own keys with its own `get_api_keys()` function, so it sat unused while still being documented and tested. This is a minor release because removing an exported symbol is a breaking change in form, even though no caller exists.
 
 - **Breaking:** `load_keys()` is removed (`R/utils_env.R`, its `NAMESPACE` export, `man/load_keys.Rd`, the `_pkgdown.yml` reference entry, the generated roxyassert contract, and its three tests in `test-utils_env.R`). Evidence: the only exported symbol with zero references across the twenty fleet repositories (code, tests, vignettes, documentation), no internal caller, last touched 2026-06-26. Replacement for any outside caller: `lapply(spec, function(var) Sys.getenv(var, unset = ""))`.
+- `README.Rmd` / `README.md`: the hand-typed "Cite as" line said 0.5.4; it now says 0.7.0.
 - `DESCRIPTION`: version bumped 0.6.0 -> 0.7.0. Dependants only pin a version floor and none calls `load_keys()`, so no dependant needs a code change.
 
 # connectcore 0.6.0

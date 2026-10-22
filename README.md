@@ -192,7 +192,7 @@ Release history is in [`NEWS.md`](NEWS.md).
 ## Citation
 
 Cite as: Mezquita, D. (2026). Reusable Base for REST and WebSocket
-Data-Source Connectors. R package version 0.5.4.
+Data-Source Connectors. R package version 0.7.0.
 <https://github.com/dereckscompany/connectcore>
 
 ## Licence
